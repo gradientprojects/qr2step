@@ -8,14 +8,14 @@ const FIELDS = [
     name: "ecLevel",
     label: "Error correction",
     type: "select",
-    value: "M",
+    value: "Q",
     options: [
       ["L", "L — low"],
-      ["M", "M — medium (default)"],
-      ["Q", "Q — quartile"],
+      ["M", "M — medium"],
+      ["Q", "Q — quartile (default)"],
       ["H", "H — high"],
     ],
-    tip: "Higher = denser grid but more robust; needed for a center logo later.",
+    tip: "How much of the code can be recovered if it's damaged, dirty, or scuffed — L ~7%, M ~15%, Q ~25%, H ~30%. Higher = denser grid. Use L/M for clean on-screen or indoor codes; Q/H for printed labels that may wear, small prints, or anything mounted outdoors.",
   },
 
   { group: "Print mode" },
@@ -32,18 +32,18 @@ const FIELDS = [
   },
 
   { group: "Dimensions" },
-  { name: "qrSize", label: "QR area size", type: "number", value: 40, min: 10, max: 200, step: 1, unit: "mm", tip: "Size of the scannable code area itself (not the whole tile)." },
-  { type: "info", id: "readout-qrpanel", label: "QR + quiet zone", tip: "QR area plus the required light quiet-zone border on all sides." },
-  { name: "cornerRadius", label: "Corner radius", type: "number", value: 2, min: 0, max: 15, step: 0.5, unit: "mm", tip: "Outer edge only; modules are never rounded." },
+  { name: "qrSize", label: "QR area size", type: "number", value: 40, min: 10, max: 200, step: 1, unit: "mm", tip: "Size of the scannable code area itself (not the whole tile).", rowGroup: "size" },
+  { name: "quietModules", label: "Quiet-zone border", type: "number", value: 4, min: 4, max: 12, step: 1, unit: "modules", tip: "Hard minimum 4 — required for reliable scanning.", rowGroup: "size" },
+  { name: "frame", label: "Outer frame", type: "checkbox", value: true },
+  { name: "frameWidth", label: "Frame width", type: "number", value: 3, min: 0.5, max: 15, step: 0.5, unit: "mm", showWhen: (p) => p.frame, rowGroup: "frameround" },
+  { name: "cornerRadius", label: "Corner radius", type: "number", value: 5, min: 0, max: 15, step: 0.5, unit: "mm", tip: "Outer edge only; modules are never rounded.", rowGroup: "frameround" },
+  { name: "corners", label: "Corners", type: "corners", value: { tl: true, tr: true, bl: true, br: true }, tip: "Click a corner to toggle whether it gets the radius. Leave some square to butt the tile against other geometry in CAD.", showWhen: (p) => p.cornerRadius > 0, rowGroup: "frameround" },
   { name: "baseThickness", label: "Base thickness", type: "number", value: 3, min: 1, max: 10, step: 0.2, unit: "mm", tip: "Auto-raised if the magnet depth would need it." },
   { name: "blockHeight", label: "Block height", type: "number", value: 1, min: 0.2, max: 5, step: 0.2, unit: "mm", tip: "Height the modules stand above the plate. Hidden in Flat mode.", showWhen: (p) => p.printMode !== "flat" },
   { name: "flatInlayDepth", label: "Color inlay depth", type: "number", value: 1.0, min: 0.4, max: 3, step: 0.1, unit: "mm", tip: "Flat mode: how deep the colored top layer is set into the plate. ~0.8–1.2 mm gives good opacity; the solid base below carries the magnets.", showWhen: (p) => p.printMode === "flat" },
 
   { group: "Layout" },
-  { name: "quietModules", label: "Quiet-zone border", type: "number", value: 4, min: 4, max: 12, step: 1, unit: "modules", tip: "Hard minimum 4 — required for reliable scanning." },
-  { name: "frame", label: "Outer frame", type: "checkbox", value: true },
-  { name: "frameWidth", label: "Frame width", type: "number", value: 3, min: 0.5, max: 15, step: 0.5, unit: "mm", showWhen: (p) => p.frame },
-  { name: "connectDiagonals", label: "Connect diagonal modules", type: "checkbox", value: false, tip: "Bridges diagonally-touching modules with a sliver of material. Removes non-manifold corner points so the model imports cleanly into CAD and prints as one connected piece. Strongly recommended." },
+  { name: "connectDiagonals", label: "Connect diagonal modules", type: "checkbox", value: true, tip: "Bridges diagonally-touching modules with a sliver of material. Removes non-manifold corner points so the model imports cleanly into CAD and prints as one connected piece. On by default — strongly recommended." },
   { name: "bridgeWidth", label: "Bridge width", type: "number", value: 0.45, min: 0.1, max: 1, step: 0.05, unit: "mm", tip: "Target connector width. Default 0.45 mm = standard extrusion width for a 0.4 mm nozzle. Auto-capped to ⅓ of a module on dense codes so it never hurts scanning.", showWhen: (p) => p.connectDiagonals },
   { type: "info", id: "readout-bridge", label: "Bridge (effective)", tip: "Actual connector width after the ⅓-module scannability cap.", showWhen: (p) => p.connectDiagonals },
 
@@ -61,21 +61,70 @@ const FIELDS = [
       ["right", "Right"],
     ],
     tip: "Adds plate area outside the QR quiet zone (scan-safe). Text/SVG coming next; blank panel works now.",
+    rowGroup: "panel",
   },
+  { name: "panelDepth", label: "Panel depth", type: "number", value: 10, min: 3, max: 100, step: 1, unit: "mm", showWhen: (p) => p.panelSide !== "none", rowGroup: "panel" },
   {
     name: "panelContent",
     label: "Panel content",
     type: "select",
-    value: "blank",
+    value: "text",
     options: [
-      ["blank", "Blank plate"],
-      ["svg", "SVG image"],
+      ["blank", "Blank"],
+      ["text", "Text"],
+      ["svg", "SVG"],
     ],
-    tip: "Blank = bare plate to model in CAD later. SVG = upload a vector image, extruded into the panel as the dark color. (Text coming soon.)",
+    tip: "Blank = bare plate to model in CAD later. Text = a string rendered in a bundled font. SVG = upload a vector image. All are extruded into the panel as the dark color.",
     showWhen: (p) => p.panelSide !== "none",
+    rowGroup: "panel",
   },
   { type: "action", name: "svgFile", label: "SVG file", buttonText: "Choose SVG…", showWhen: (p) => p.panelSide !== "none" && p.panelContent === "svg" },
-  { name: "panelDepth", label: "Panel depth", type: "number", value: 10, min: 3, max: 100, step: 1, unit: "mm", showWhen: (p) => p.panelSide !== "none" },
+  { name: "panelText", label: "Panel text", type: "text", value: "", tip: "The text rendered into the panel. Auto-shrinks to fit the panel width.", showWhen: (p) => p.panelSide !== "none" && p.panelContent === "text" },
+  {
+    name: "fontChoice",
+    label: "Font",
+    type: "select",
+    value: "archivoBlack",
+    options: [
+      ["archivoBlack", "Archivo Black"],
+      ["anton", "Anton"],
+      ["spaceMono", "Space Mono"],
+      ["uploaded", "Uploaded font"],
+    ],
+    tip: "Bundled bold fonts (all SIL Open Font License), or your own uploaded font.",
+    showWhen: (p) => p.panelSide !== "none" && p.panelContent === "text",
+    rowGroup: "textopts",
+  },
+  { name: "textHeight", label: "Text height", type: "number", value: 6, min: 3, max: 50, step: 0.5, unit: "mm", tip: "Target height of the text. Flagged if it would fall below ~3 mm (gets hard to print/read).", showWhen: (p) => p.panelSide !== "none" && p.panelContent === "text", rowGroup: "textopts" },
+  { type: "action", name: "fontFile", label: "Custom font", buttonText: "Upload font…", note: "Parsed in your browser — the file never leaves your device.", showWhen: (p) => p.panelSide !== "none" && p.panelContent === "text" && p.fontChoice === "uploaded" },
+  {
+    name: "alignH",
+    label: "Horizontal align",
+    type: "select",
+    value: "center",
+    options: [
+      ["left", "Left"],
+      ["center", "Center"],
+      ["right", "Right"],
+    ],
+    tip: "Horizontal position of the text/SVG within the panel.",
+    showWhen: (p) => p.panelSide !== "none" && (p.panelContent === "text" || p.panelContent === "svg"),
+    rowGroup: "align",
+  },
+  {
+    name: "alignV",
+    label: "Vertical align",
+    type: "select",
+    value: "center",
+    options: [
+      ["top", "Top"],
+      ["center", "Center"],
+      ["bottom", "Bottom"],
+    ],
+    tip: "Vertical position of the text/SVG within the panel.",
+    showWhen: (p) => p.panelSide !== "none" && (p.panelContent === "text" || p.panelContent === "svg"),
+    rowGroup: "align",
+  },
 
   { group: "Magnets" },
   { name: "magnets", label: "Corner magnets (4)", type: "checkbox", value: false },
@@ -85,8 +134,9 @@ const FIELDS = [
 ];
 
 const READOUTS = [
-  ["readout-tile", "Total tile"],
+  ["readout-qrpanel", "External XY"],
   ["readout-modules", "QR modules"],
+  ["readout-module-size", "Module size"],
   ["readout-base", "Base thickness"],
   ["readout-spacing", "Magnet spacing (c-c)"],
 ];
@@ -99,11 +149,25 @@ export function buildControls(root, handlers) {
   header.innerHTML = `<h1>qr2step</h1><p>URL → 3D-printable QR → <strong>STEP</strong></p>`;
   root.appendChild(header);
 
-  for (const f of FIELDS) {
+  for (let i = 0; i < FIELDS.length; i++) {
+    const f = FIELDS[i];
     if (f.group) {
       const h = document.createElement("h2");
       h.textContent = f.group;
       root.appendChild(h);
+      continue;
+    }
+    // Consecutive fields sharing a rowGroup render side by side in one row.
+    if (f.rowGroup) {
+      const rowDiv = document.createElement("div");
+      rowDiv.className = "field-row";
+      let j = i;
+      while (j < FIELDS.length && FIELDS[j].rowGroup === f.rowGroup) {
+        rowDiv.appendChild(renderField(FIELDS[j], handlers.onChange));
+        j++;
+      }
+      root.appendChild(rowDiv);
+      i = j - 1;
       continue;
     }
     root.appendChild(renderField(f, handlers.onChange));
@@ -135,12 +199,30 @@ export function buildControls(root, handlers) {
   const imp = button("Import settings", "small", handlers.onImportSettings);
   settings.append(exp, imp);
   root.appendChild(settings);
+
+  // Diagnostics: report a bug (opens a prefilled GitHub issue) or export the log.
+  const diag = document.createElement("div");
+  diag.className = "downloads settings-row";
+  const reportBtn = button("Report a bug", "small", handlers.onSubmitLog);
+  reportBtn.title = "Opens a prefilled GitHub issue with diagnostics (settings, recent errors, browser info). No font/SVG files are included — you review and submit it.";
+  const logBtn = button("Export log", "small", handlers.onExportLog);
+  logBtn.title = "Download the same diagnostics as a JSON file.";
+  diag.append(reportBtn, logBtn);
+  root.appendChild(diag);
 }
 
 // Compose a hover tooltip: the field's description plus its allowed range.
+// Split a run-on tip into sentences so the native tooltip shows one per block.
+function splitSentences(text) {
+  return text
+    .split(/(?<=[.!?])\s+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
 function tooltipFor(f) {
   const parts = [];
-  if (f.tip) parts.push(f.tip);
+  if (f.tip) parts.push(...splitSentences(f.tip));
   if (f.type === "number" && (f.min != null || f.max != null)) {
     const u = f.unit ? ` ${f.unit}` : "";
     const lo = f.min != null ? f.min : "–";
@@ -172,6 +254,41 @@ function renderField(f, onChange) {
     name.id = "f-" + f.name + "-name";
     name.textContent = "none";
     row.append(lab, btn, name);
+    if (f.note) {
+      const note = document.createElement("span");
+      note.className = "field-note";
+      note.textContent = f.note;
+      row.appendChild(note);
+    }
+    return row;
+  }
+
+  // Corner picker: a 2×2 mini-tile, each corner a toggle for the radius.
+  if (f.type === "corners") {
+    const row = document.createElement("div");
+    row.className = "field field-corners";
+    row.dataset.field = f.name;
+    if (f.tip) row.title = f.tip;
+    const lab = document.createElement("span");
+    lab.className = "field-label";
+    lab.textContent = f.label;
+    const grid = document.createElement("div");
+    grid.className = "corner-grid";
+    grid.id = "f-" + f.name;
+    for (const c of ["tl", "tr", "bl", "br"]) {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "corner-cell corner-" + c;
+      b.dataset.corner = c;
+      b.setAttribute("aria-label", c);
+      if (f.value?.[c] !== false) b.classList.add("active");
+      b.addEventListener("click", () => {
+        b.classList.toggle("active");
+        onChange();
+      });
+      grid.appendChild(b);
+    }
+    row.append(lab, grid);
     return row;
   }
 
@@ -247,7 +364,12 @@ export function readParams() {
     if (f.group || f.type === "info" || f.type === "action") continue;
     const el = document.getElementById("f-" + f.name);
     if (!el) continue;
-    if (f.type === "checkbox") params[f.name] = el.checked;
+    if (f.type === "corners") {
+      const out = {};
+      for (const b of el.querySelectorAll(".corner-cell"))
+        out[b.dataset.corner] = b.classList.contains("active");
+      params[f.name] = out;
+    } else if (f.type === "checkbox") params[f.name] = el.checked;
     else if (f.type === "number") params[f.name] = parseFloat(el.value);
     else params[f.name] = el.value;
   }
@@ -262,7 +384,11 @@ export function setParams(params) {
     if (f.group || f.type === "info" || !(f.name in params)) continue;
     const el = document.getElementById("f-" + f.name);
     if (!el) continue;
-    if (f.type === "checkbox") el.checked = !!params[f.name];
+    if (f.type === "corners") {
+      const v = params[f.name] || {};
+      for (const b of el.querySelectorAll(".corner-cell"))
+        b.classList.toggle("active", v[b.dataset.corner] !== false);
+    } else if (f.type === "checkbox") el.checked = !!params[f.name];
     else el.value = params[f.name];
   }
 }

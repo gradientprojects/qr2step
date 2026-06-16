@@ -13,7 +13,7 @@ Most QR-to-3D tools output STL (a triangle mesh). qr2step builds true B-rep soli
 - **Outer frame** with adjustable width, outside the QR quiet zone.
 - **Rounded outer corners** (modules never rounded).
 - **Corner magnets**: four chamfered blind pockets, with safe-distance clamps.
-- **Label panel** (one side) for extra text/SVG/blank plate — *text & SVG in progress*.
+- **Label panel** (one side): a blank plate, **text** in a bundled font, or an uploaded **SVG** — extruded as the dark color, outside the scan area.
 
 ## Develop
 

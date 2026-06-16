@@ -13,6 +13,7 @@
   "dependencies": {
     "comlink": "^4.4.2",
     "opentype.js": "^2.0.0",
+    "polygon-clipping": "^0.15.7",
     "qrcode-generator": "^1.4.4",
     "replicad": "^0.23.1",
     "replicad-opencascadejs": "^0.23.0",

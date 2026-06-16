@@ -22,23 +22,26 @@ const CHAMFER = 0.5; // magnet lead-in chamfer (mm)
 
 const DEFAULTS = {
   text: "https://example.com",
-  ecLevel: "M",
+  ecLevel: "Q",
   qrSize: 40, // mm, the QR code area (not the whole tile)
   baseThickness: 3,
   blockHeight: 1,
   quietModules: 4,
   frame: true,
   frameWidth: 3,
-  cornerRadius: 2,
+  cornerRadius: 5,
+  corners: { tl: true, tr: true, bl: true, br: true }, // which corners get the radius
   printMode: "raised", // "raised" | "flat"
   flatInlayDepth: 1.0, // mm, depth of the colored top inlay in flat mode
-  connectDiagonals: false, // bridge diagonal module touches (manifold/printable)
+  connectDiagonals: true, // bridge diagonal module touches (manifold/printable)
   bridgeWidth: 0.45, // mm, target connector width — standard 0.4 mm nozzle line
   panelSide: "none", // "none" | "top" | "bottom" | "left" | "right"
-  panelContent: "blank", // "blank" | "text" | "svg"
-  panelText: "", // panel text string (WIP)
-  fontChoice: "archivoBlack", // bundled font id or "uploaded" (WIP)
-  textHeight: 6, // mm, target text height (WIP)
+  panelContent: "text", // "blank" | "text" | "svg"
+  panelText: "", // panel text string
+  fontChoice: "archivoBlack", // bundled font id
+  textHeight: 6, // mm, target text height
+  alignH: "center", // text/svg horizontal align in panel: "left"|"center"|"right"
+  alignV: "center", // text/svg vertical align in panel: "top"|"center"|"bottom"
   panelDepth: 10,
   magnets: false,
   magnetHoleId: 6.3,
@@ -48,22 +51,63 @@ const DEFAULTS = {
 
 const rect = (w, h, r) => drawRoundedRectangle(w, h, Math.max(0, r));
 
+const ALL_CORNERS = { tl: true, tr: true, bl: true, br: true };
+
+/**
+ * Centred rectangle that rounds ONLY the corners flagged in `mask`
+ * ({tl,tr,bl,br} booleans), all to the same radius `r`. Square corners stay
+ * sharp. Falls back to the plain all-corner rounded rect when every corner is
+ * on (or r<=0). The path starts at the mid-bottom edge so `close()` never lands
+ * on a corner — each corner is then selectable via replicad's customCorner.
+ */
+function maskedRect(w, h, r, mask = ALL_CORNERS) {
+  const on = { ...ALL_CORNERS, ...mask };
+  if (!(r > 0) || (on.tl && on.tr && on.bl && on.br))
+    return drawRoundedRectangle(w, h, Math.max(0, r));
+  const hw = w / 2;
+  const hh = h / 2;
+  const pen = draw([0, -hh]);
+  pen.lineTo([hw, -hh]); // arrive bottom-right
+  if (on.br) pen.customCorner(r);
+  pen.lineTo([hw, hh]); // arrive top-right
+  if (on.tr) pen.customCorner(r);
+  pen.lineTo([-hw, hh]); // arrive top-left
+  if (on.tl) pen.customCorner(r);
+  pen.lineTo([-hw, -hh]); // arrive bottom-left
+  if (on.bl) pen.customCorner(r);
+  pen.lineTo([0, -hh]); // back to mid-bottom (no corner here)
+  return pen.close();
+}
+
 /**
  * Fuse a list of {x,y,w,h} module rects (module units) into one 2D drawing.
- * Calls onRect(i, total) after each fuse so the UI can show real progress —
- * this loop is the bulk of the build cost.
+ * Uses a balanced pairwise (divide-and-conquer) fuse instead of accumulating
+ * into one growing shape: that keeps each boolean operating on small shapes,
+ * turning the dominant build cost from ~O(n²) into ~O(n log n). Calls
+ * onRect(done, total) so the UI can show real progress.
  */
 function modulesDrawing(rects, m, qrLeft, qrTop, onRect) {
-  let dwg = null;
-  for (let i = 0; i < rects.length; i++) {
-    const { x, y, w, h } = rects[i];
+  if (!rects.length) return null;
+  let level = rects.map(({ x, y, w, h }) => {
     const cx = qrLeft + (x + w / 2) * m;
     const cy = qrTop - (y + h / 2) * m;
-    const r = drawRoundedRectangle(w * m, h * m, 0).translate([cx, cy]);
-    dwg = dwg ? dwg.fuse(r) : r;
-    onRect?.(i + 1, rects.length);
+    return drawRoundedRectangle(w * m, h * m, 0).translate([cx, cy]);
+  });
+  const total = level.length;
+  let done = 0;
+  while (level.length > 1) {
+    const next = [];
+    for (let i = 0; i < level.length; i += 2) {
+      if (i + 1 < level.length) {
+        next.push(level[i].fuse(level[i + 1]));
+        onRect?.(++done, total);
+      } else {
+        next.push(level[i]);
+      }
+    }
+    level = next;
   }
-  return dwg;
+  return level[0];
 }
 
 /**
@@ -98,13 +142,26 @@ function diagonalBridges(matrix, m, qrLeft, qrTop, bridge) {
   return dwg;
 }
 
-/** Closed polygon Drawing from [x,y] points (drops a duplicated closing point). */
+// Collapse points closer than this (mm). After scaling glyph/SVG outlines down
+// to a few mm, curve tessellation leaves sub-tolerance "sliver" edges that
+// survive the boolean but crash triangulation; merging them keeps the model
+// meshable. 0.03 mm is well below print resolution.
+const MERGE_TOL = 0.03;
+
+/** Closed polygon Drawing from [x,y] points (mm), with slivers merged out. */
 function polygonDrawing(pts) {
-  const p = pts.slice();
-  const f = p[0];
-  const l = p[p.length - 1];
-  if (p.length > 1 && Math.abs(f[0] - l[0]) < 1e-6 && Math.abs(f[1] - l[1]) < 1e-6)
-    p.pop();
+  const p = [];
+  for (const pt of pts) {
+    if (!Number.isFinite(pt[0]) || !Number.isFinite(pt[1])) continue;
+    const prev = p[p.length - 1];
+    if (!prev || Math.hypot(prev[0] - pt[0], prev[1] - pt[1]) > MERGE_TOL) p.push(pt);
+  }
+  if (p.length > 1) {
+    const f = p[0];
+    const l = p[p.length - 1];
+    if (Math.hypot(f[0] - l[0], f[1] - l[1]) <= MERGE_TOL) p.pop();
+  }
+  if (p.length < 3) throw new Error("degenerate polygon");
   let d = draw([p[0][0], p[0][1]]);
   for (let i = 1; i < p.length; i++) d = d.lineTo([p[i][0], p[i][1]]);
   return d.close();
@@ -115,7 +172,7 @@ function polygonDrawing(pts) {
  * preserved) and centred in it. `shapes` = [{outer:[[x,y]...], holes:[[...]]}],
  * already y-flipped to model orientation. Returns null if nothing usable.
  */
-function buildSvgDrawing(shapes, bounds, box, targetHeight) {
+function buildSvgDrawing(shapes, bounds, box, targetHeight, align) {
   if (!shapes?.length || !box) return null;
   const svgW = bounds.maxX - bounds.minX || 1;
   const svgH = bounds.maxY - bounds.minY || 1;
@@ -125,17 +182,35 @@ function buildSvgDrawing(shapes, bounds, box, targetHeight) {
     box.h / svgH,
     targetHeight ? targetHeight / svgH : Infinity
   );
+  // Align within the panel box: shift by the leftover slack on each axis.
+  // (model y is up: "top" is +y.) Defaults to centred.
+  const slackX = (box.w - svgW * scale) / 2;
+  const slackY = (box.h - svgH * scale) / 2;
+  const offX = align?.h === "left" ? -slackX : align?.h === "right" ? slackX : 0;
+  const offY = align?.v === "bottom" ? -slackY : align?.v === "top" ? slackY : 0;
   const scx = (bounds.minX + bounds.maxX) / 2;
   const scy = (bounds.minY + bounds.maxY) / 2;
-  const tx = ([x, y]) => [(x - scx) * scale + box.cx, (y - scy) * scale + box.cy];
+  const tx = ([x, y]) => [
+    (x - scx) * scale + box.cx + offX,
+    (y - scy) * scale + box.cy + offY,
+  ];
   let result = null;
   for (const s of shapes) {
     if (!s.outer || s.outer.length < 3) continue;
-    let d = polygonDrawing(s.outer.map(tx));
-    for (const h of s.holes || []) {
-      if (h.length >= 3) d = d.cut(polygonDrawing(h.map(tx)));
+    try {
+      let d = polygonDrawing(s.outer.map(tx));
+      for (const h of s.holes || []) {
+        if (h.length < 3) continue;
+        try {
+          d = d.cut(polygonDrawing(h.map(tx)));
+        } catch {
+          /* skip an unbuildable counter rather than dropping the whole glyph */
+        }
+      }
+      result = result ? result.fuse(d) : d;
+    } catch {
+      /* skip a glyph the kernel can't build rather than aborting the model */
     }
-    result = result ? result.fuse(d) : d;
   }
   return result;
 }
@@ -285,60 +360,73 @@ export function buildModel(p, report = () => {}) {
 
   if (params.frame && fw > 0) {
     report(0.58, "frame");
-    const ring = rect(tileW, tileH, cornerR).cut(
-      rect(tileW - 2 * fw, tileH - 2 * fw, innerR)
+    const ring = maskedRect(tileW, tileH, cornerR, params.corners).cut(
+      maskedRect(tileW - 2 * fw, tileH - 2 * fw, innerR, params.corners)
     );
     dark2d = dark2d ? dark2d.fuse(ring) : ring;
   }
 
   // Label-panel content (SVG image or rendered text, both delivered as polygon
-  // shapes) → part of the color-2 (dark) body, fit into the panel box.
+  // shapes). Kept as its OWN drawing so a problem glyph can't corrupt the module
+  // body — it's fused/extruded with a fallback below.
+  let content2d = null;
   if (
     (params.panelContent === "svg" || params.panelContent === "text") &&
     params.svgShapes &&
     L.panelBox
   ) {
     report(0.6, "panel");
-    const content = buildSvgDrawing(
-      params.svgShapes,
-      params.svgBounds,
-      L.panelBox,
-      params.svgTargetHeight
-    );
-    if (content) dark2d = dark2d ? dark2d.fuse(content) : content;
+    try {
+      content2d = buildSvgDrawing(
+        params.svgShapes,
+        params.svgBounds,
+        L.panelBox,
+        params.svgTargetHeight,
+        { h: params.alignH, v: params.alignV }
+      );
+    } catch (e) {
+      L.contentDropped = true;
+    }
   }
 
   // ---- light body (color 1): full plate ----
-  const plate2d = rect(tileW, tileH, cornerR);
+  const plate2d = maskedRect(tileW, tileH, cornerR, params.corners);
+  const inlayDepth = Math.min(inlay, baseThickness - FLOOR_MIN);
 
+  // Combined dark 2D (modules+frame + optional panel content), fused once.
+  const dark2dFull =
+    content2d && dark2d ? dark2d.fuse(content2d) : content2d || dark2d;
+  const extrudeAt = (d, height, z) =>
+    d.sketchOnPlane().extrude(height).translate([0, 0, z]);
+
+  // Assemble light + dark for the given print mode. If panel content makes the
+  // kernel fail anywhere downstream, the worker rebuilds this model with content
+  // stripped (panelContent "blank") — so resilience lives there, not here.
   let light;
   let dark;
   if (params.printMode === "flat") {
     // Flat: dark is a thin color inlay set into the TOP of the plate; the solid
-    // base below stays light and houses the magnets. Top surface is flush.
+    // base below stays light and houses the magnets.
     report(0.62, "plate");
-    const inlayDepth = Math.min(inlay, baseThickness - FLOOR_MIN);
     const plate = plate2d.sketchOnPlane().extrude(baseThickness);
-    const darkInlay = dark2d
-      ? dark2d
-          .sketchOnPlane()
-          .extrude(inlayDepth)
-          .translate([0, 0, baseThickness - inlayDepth])
-      : null;
     report(0.7, "shape");
-    light = darkInlay ? plate.cut(darkInlay.clone()) : plate;
-    dark = darkInlay;
+    if (dark2dFull) {
+      const z = baseThickness - inlayDepth;
+      dark = extrudeAt(dark2dFull, inlayDepth, z);
+      // Cut the pocket with a tool that OVERSHOOTS the top face — a coplanar
+      // tool/plate top face produces zero-area faces that pass the boolean but
+      // crash meshing (the flat-mode "mesh" failures).
+      const tool = extrudeAt(dark2dFull.clone(), inlayDepth + 0.02, z);
+      light = plate.cut(tool);
+    } else {
+      light = plate;
+    }
   } else {
     // Raised: solid plate, dark sits +blockHeight on top.
     report(0.62, "plate");
     light = plate2d.sketchOnPlane().extrude(baseThickness);
     report(0.7, "shape");
-    dark = dark2d
-      ? dark2d
-          .sketchOnPlane()
-          .extrude(params.blockHeight)
-          .translate([0, 0, baseThickness])
-      : null;
+    dark = dark2dFull ? extrudeAt(dark2dFull, params.blockHeight, baseThickness) : null;
   }
 
   // ---- magnets: subtract chamfered pockets from the light body ----
@@ -368,13 +456,21 @@ export function buildModel(p, report = () => {}) {
 /** Mesh both bodies for the three.js preview (called in the worker). */
 export function meshModel({ light, dark }, report = () => {}) {
   const shapes = [];
+  const meshOne = (body, name) => {
+    try {
+      return { name, faces: body.mesh(), edges: body.meshEdges() };
+    } catch (e) {
+      // Localize the failure so the error names the body, not just "mesh".
+      throw new Error(`mesh failed on ${name} body (${e?.message ?? e})`);
+    }
+  };
   if (light) {
     report(0.88, "mesh");
-    shapes.push({ name: "light", faces: light.mesh(), edges: light.meshEdges() });
+    shapes.push(meshOne(light, "light"));
   }
   if (dark) {
     report(0.94, "mesh");
-    shapes.push({ name: "dark", faces: dark.mesh(), edges: dark.meshEdges() });
+    shapes.push(meshOne(dark, "dark"));
   }
   report(0.99, "mesh");
   return shapes;

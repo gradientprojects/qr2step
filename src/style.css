@@ -21,7 +21,7 @@ body {
 #app { display: flex; height: 100vh; }
 
 #controls {
-  width: 320px;
+  width: 360px;
   flex: 0 0 320px;
   background: var(--panel);
   border-right: 1px solid var(--border);
@@ -60,8 +60,41 @@ body {
 .field-info .field-label { font-size: 12px; color: var(--muted); }
 .info-val { font-size: 12px; font-variant-numeric: tabular-nums; }
 
-.field-action { flex-direction: row; align-items: center; gap: 8px; }
+.field-action { flex-direction: row; align-items: center; gap: 8px; flex-wrap: wrap; }
 .field-action .btn.small { flex: 0 0 auto; }
+.field-note { flex-basis: 100%; font-size: 11px; color: var(--muted); }
+
+/* Two fields sharing a rowGroup, placed side by side. */
+/* Stretch fields to equal height, then pin each control to the bottom so the
+   inputs line up across the row even when some titles wrap to two lines. */
+.field-row { display: flex; gap: 14px; align-items: stretch; }
+.field-row > .field { flex: 1 1 0; min-width: 0; }
+.field-row > .field-corners { flex: 0 0 auto; }
+.field-row > .field input,
+.field-row > .field select,
+.field-row > .field-corners .corner-grid { margin-top: auto; }
+
+/* Corner picker: a little 2×2 tile; click a corner to toggle its radius. */
+.corner-grid {
+  display: grid;
+  grid-template-columns: 22px 22px;
+  grid-template-rows: 22px 22px;
+  gap: 3px;
+  width: max-content;
+}
+.corner-cell {
+  width: 22px; height: 22px;
+  padding: 0;
+  background: #2a2f37;
+  border: 1px solid var(--border);
+  cursor: pointer;
+}
+.corner-cell.active { background: var(--accent); border-color: var(--accent); }
+.corner-tl.active { border-top-left-radius: 10px; }
+.corner-tr.active { border-top-right-radius: 10px; }
+.corner-bl.active { border-bottom-left-radius: 10px; }
+.corner-br.active { border-bottom-right-radius: 10px; }
+.corner-cell:focus { outline: 1px solid var(--accent); }
 .file-name {
   font-size: 12px;
   color: var(--muted);
@@ -101,6 +134,7 @@ body {
 }
 .readout-row span:first-child { color: var(--muted); }
 .readout-val { font-variant-numeric: tabular-nums; }
+.readout-val.warn { color: #f0b24b; }
 
 .downloads { display: flex; gap: 8px; margin-top: 16px; }
 .btn {

@@ -47,10 +47,7 @@ async function build(params, onProgress) {
   current = buildModel(params, report); // reports up to 0.85
   const shapes = meshModel(current, report); // 0.85 .. 0.99
   report(1, "done");
-  return {
-    shapes,
-    layout: serializeLayout(current.layout),
-  };
+  return { shapes, layout: serializeLayout(current.layout) };
 }
 
 // Strip the heavy replicad objects from the layout before sending to the UI.
