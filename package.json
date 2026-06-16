@@ -1,0 +1,25 @@
+{
+  "name": "qr2step",
+  "version": "0.1.0",
+  "description": "Browser tool: turn a URL into a 3D-printable, two-color QR code exported as a STEP file.",
+  "type": "module",
+  "license": "MIT",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "node test/qr.test.mjs"
+  },
+  "dependencies": {
+    "comlink": "^4.4.2",
+    "opentype.js": "^2.0.0",
+    "qrcode-generator": "^1.4.4",
+    "replicad": "^0.23.1",
+    "replicad-opencascadejs": "^0.23.0",
+    "replicad-threejs-helper": "^0.23.0",
+    "three": "^0.184.0"
+  },
+  "devDependencies": {
+    "vite": "^6.3.5"
+  }
+}

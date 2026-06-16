@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>qr2step — 3D-printable QR codes as STEP</title>
+    <meta
+      name="description"
+      content="Turn a URL into a two-color, 3D-printable QR code and download it as a STEP file. Runs entirely in your browser."
+    />
+  </head>
+  <body>
+    <div id="app">
+      <aside id="controls"><!-- controls injected by main.js --></aside>
+      <main id="viewport">
+        <div id="hints" class="hints">
+          <span><b>Rotate</b> drag</span>
+          <span><b>Pan</b> Ctrl+drag</span>
+          <span><b>Zoom</b> scroll</span>
+          <span><b>Top view</b> N</span>
+        </div>
+        <div id="status" class="status">Loading CAD engine…</div>
+        <div id="buildsteps" class="buildsteps" hidden>
+          <div class="bs-head">
+            <span class="bs-title">Building</span>
+            <span class="bs-pct">0%</span>
+          </div>
+          <div class="bs-track"><div class="bs-bar"></div></div>
+          <ul class="bs-list"></ul>
+        </div>
+        <canvas id="three-canvas"></canvas>
+      </main>
+    </div>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
