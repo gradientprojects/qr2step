@@ -532,9 +532,12 @@ async function regenerate() {
 }
 
 let debounceTimer = null;
-function scheduleRegen() {
+// Debounce the (expensive) OCCT rebuild so rapid input doesn't fire one per
+// keystroke/click. Text gets a longer window than a click/toggle since you
+// type many characters in a row.
+function scheduleRegen(delay = 300) {
   clearTimeout(debounceTimer);
-  debounceTimer = setTimeout(regenerate, 250);
+  debounceTimer = setTimeout(regenerate, delay);
 }
 
 function setStatus(msg, busy = false, error = false) {
@@ -786,7 +789,8 @@ buildControls(document.getElementById("controls"), {
     updateFilenameReadout(); // cheap; reflects the name instantly
     // The export name doesn't affect geometry — skip the OCCT rebuild for it.
     if (f?.name === "exportName") return;
-    scheduleRegen();
+    // Text inputs (URL, panel text) get a longer settle than clicks/toggles.
+    scheduleRegen(f?.type === "text" ? 550 : 300);
   },
   onDownloadSTEP: () => download("step"),
   onDownloadSTL: () => download("stl"),
