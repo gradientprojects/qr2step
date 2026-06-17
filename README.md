@@ -44,6 +44,10 @@ Label-panel text uses these fonts, bundled under the SIL Open Font License (see 
 - **Anton** — © The Anton Project Authors
 - **Space Mono** — © The Space Mono Project Authors
 
+## Credits
+
+The UI and feature set is heavily inspired by the great tool at [qrcode2stl](https://qrcode2stl.printer.tools/), but it's built from scratch.
+
 ## License
 
 MIT (application code). Bundled fonts remain under their respective OFL licenses.
