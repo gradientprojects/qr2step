@@ -38,6 +38,8 @@ body {
 .panel-title { min-width: 0; }
 .panel-header h1 { margin: 0; font-size: 22px; letter-spacing: 0.5px; }
 .panel-header p { margin: 2px 0 8px; color: var(--muted); font-size: 13px; }
+.panel-title a { color: var(--accent); text-decoration: none; }
+.panel-title a:hover { text-decoration: underline; }
 .header-reset { flex: 0 0 auto; align-self: stretch; white-space: nowrap; }
 
 #controls h2 {

@@ -166,7 +166,7 @@ export function buildControls(root, handlers) {
   header.className = "panel-header";
   const titleWrap = document.createElement("div");
   titleWrap.className = "panel-title";
-  titleWrap.innerHTML = `<h1>qr2step</h1><p>URL → 3D-printable QR → <strong>STEP</strong></p>`;
+  titleWrap.innerHTML = `<h1>qr2step</h1><p>URL → 3D-printable QR → <strong>STEP</strong> · <a href="https://github.com/gradientprojects/qr2step" target="_blank" rel="noopener">GitHub</a></p>`;
   const headerReset = button("Reset all", "small", () => {
     if (confirm("Reset all settings to their defaults?")) {
       resetGroup(); // no arg → every field
