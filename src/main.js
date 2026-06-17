@@ -715,7 +715,7 @@ function exportLog() {
 // Public GitHub repo that receives bug reports. Set this to the published repo
 // (e.g. "owner/qr2step") to enable the "Report a bug" button; until then it
 // falls back to downloading the log.
-const ISSUES_REPO = "OWNER/REPO";
+const ISSUES_REPO = "gradientprojects/qr2step";
 
 function submitErrorReport() {
   if (ISSUES_REPO.includes("OWNER")) {
