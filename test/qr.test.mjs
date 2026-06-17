@@ -12,7 +12,7 @@ const check = (cond, msg) => {
 
 const TEXTS = [
   "https://example.com",
-  "https://gradientprojects.co/very/long/path?x=1&y=2",
+  "https://example.org/very/long/path?x=1&y=2",
   "A",
 ];
 const ECS = ["L", "M", "Q", "H"];

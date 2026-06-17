@@ -130,7 +130,25 @@ const FIELDS = [
   { name: "magnets", label: "Corner magnets (4)", type: "checkbox", value: false },
   { name: "magnetHoleId", label: "Hole ID", type: "number", value: 6.3, min: 2, max: 20, step: 0.1, unit: "mm", showWhen: (p) => p.magnets },
   { name: "magnetDepth", label: "Hole depth", type: "number", value: 3.3, min: 0.5, max: 8, step: 0.1, unit: "mm", tip: "Base thickness auto-raises to keep a ≥0.6 mm floor under the pocket.", showWhen: (p) => p.magnets },
-  { name: "magnetInset", label: "Corner inset", type: "number", value: 6, min: 1, max: 40, step: 0.5, unit: "mm", tip: "Distance from outer edge to magnet centre. Auto-clamped so the pocket stays ≥1.5 mm from any edge.", showWhen: (p) => p.magnets },
+  {
+    name: "magnetMode",
+    label: "Position by",
+    type: "select",
+    value: "inset",
+    options: [
+      ["inset", "Inset from corner"],
+      ["spacing", "XY pattern"],
+    ],
+    tip: "Inset from corner: one symmetric distance from each edge. XY pattern: independent centre-to-centre spacing in X and Y, to match a mounting jig or base.",
+    showWhen: (p) => p.magnets,
+  },
+  { name: "magnetInset", label: "Corner inset", type: "number", value: 6, min: 1, max: 40, step: 0.5, unit: "mm", tip: "Distance from outer edge to magnet centre. Auto-clamped so the pocket stays ≥1.5 mm from any edge.", showWhen: (p) => p.magnets && p.magnetMode === "inset" },
+  { name: "magnetSpacingX", label: "Spacing X", type: "number", value: 28, min: 0, step: 0.5, unit: "mm", tip: "Centre-to-centre distance between magnets across the width. Auto-clamped to keep ≥1.5 mm wall clearance.", showWhen: (p) => p.magnets && p.magnetMode === "spacing", rowGroup: "magspace" },
+  { name: "magnetSpacingY", label: "Spacing Y", type: "number", value: 28, min: 0, step: 0.5, unit: "mm", tip: "Centre-to-centre distance between magnets across the height. Auto-clamped to keep ≥1.5 mm wall clearance.", showWhen: (p) => p.magnets && p.magnetMode === "spacing", rowGroup: "magspace" },
+
+  { group: "Export" },
+  { name: "exportName", label: "File name", type: "text", value: "", tip: "Leave blank to name files automatically from the QR content. Tile size, EC level, print mode, and magnets are appended — size/mode keep build variants from overwriting each other." },
+  { type: "info", id: "readout-filename", label: "Saves as" },
 ];
 
 const READOUTS = [
@@ -338,8 +356,8 @@ function renderField(f, onChange) {
   input.dataset.name = f.name;
   input.dataset.kind = f.type;
   if (tip) input.title = tip;
-  input.addEventListener("input", onChange);
-  input.addEventListener("change", onChange);
+  input.addEventListener("input", () => onChange(f));
+  input.addEventListener("change", () => onChange(f));
 
   if (f.type === "checkbox") {
     wrap.classList.add("inline");

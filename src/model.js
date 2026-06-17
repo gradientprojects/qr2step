@@ -13,6 +13,7 @@ import {
   drawRoundedRectangle,
   draw,
   makeCompound,
+  exportSTEP,
 } from "replicad";
 import { buildMatrix, mergeRects } from "./qr.js";
 
@@ -46,7 +47,10 @@ const DEFAULTS = {
   magnets: false,
   magnetHoleId: 6.3,
   magnetDepth: 3.3,
+  magnetMode: "inset", // "inset" (symmetric) | "spacing" (independent X/Y)
   magnetInset: 6, // distance from outer edge to magnet centre (mm)
+  magnetSpacingX: 28, // centre-to-centre across width (spacing mode)
+  magnetSpacingY: 28, // centre-to-centre across height (spacing mode)
 };
 
 const rect = (w, h, r) => drawRoundedRectangle(w, h, Math.max(0, r));
@@ -276,15 +280,25 @@ export function computeLayout(p) {
     : params.baseThickness;
   const baseRaised = baseThickness > params.baseThickness + 1e-9;
 
-  // Magnet clamps.
+  // Magnet clamps. Two DOFs (insetX/insetY from the side edges) so "XY pattern"
+  // mode can set each axis independently; "inset" mode uses one symmetric value.
   const holeR = params.magnetHoleId / 2;
   const insetMin = holeR + WALL_MIN + cornerR; // (+fw handled via cornerR clamp)
-  const insetMax = Math.min(tileW, tileH) / 2; // can't pass centre
-  const inset = Math.min(Math.max(params.magnetInset, insetMin), insetMax);
-  const spacingX = tileW - 2 * inset;
-  const spacingY = tileH - 2 * inset;
+  const insetMaxX = tileW / 2; // can't pass centre
+  const insetMaxY = tileH / 2;
+  const clampInset = (v, hi) => Math.min(Math.max(v, insetMin), hi);
+  let insetX, insetY;
+  if (params.magnetMode === "spacing") {
+    insetX = clampInset((tileW - params.magnetSpacingX) / 2, insetMaxX);
+    insetY = clampInset((tileH - params.magnetSpacingY) / 2, insetMaxY);
+  } else {
+    insetX = insetY = clampInset(params.magnetInset, Math.min(insetMaxX, insetMaxY));
+  }
+  const spacingX = tileW - 2 * insetX;
+  const spacingY = tileH - 2 * insetY;
   const magnetDepth = Math.min(params.magnetDepth, baseThickness - FLOOR_MIN);
-  const magnetFits = insetMin <= insetMax && magnetDepth > 0;
+  const magnetFits =
+    insetMin <= insetMaxX && insetMin <= insetMaxY && magnetDepth > 0;
 
   return {
     params,
@@ -309,7 +323,8 @@ export function computeLayout(p) {
     baseRaised,
     inlay,
     holeR,
-    inset,
+    insetX,
+    insetY,
     insetMin,
     spacingX,
     spacingY,
@@ -345,30 +360,33 @@ export function buildModel(p, report = () => {}) {
   const qrLeft = qrCx - params.qrSize / 2;
   const qrTop = qrCy + params.qrSize / 2;
 
-  // ---- dark body (color 2): modules (+ frame) ----
+  // ---- color-2 (dark) drawings, kept SEPARATE so each can be exported as its
+  // own named STEP body (Tile / QR Code / Frame / Label). They don't overlap:
+  // modules sit inside the quiet zone, the frame outside it, the label on the
+  // panel — so no booleans are needed between them. ----
   const rects = mergeRects(matrix);
   // Module fusing dominates the build → maps to 0.05 .. 0.55 of the bar.
-  let dark2d = modulesDrawing(rects, m, qrLeft, qrTop, (i, total) =>
+  let modules2d = modulesDrawing(rects, m, qrLeft, qrTop, (i, total) =>
     report(0.05 + 0.5 * (i / total), "modules")
   );
 
-  // Bridge diagonal touches so the dark body is manifold and prints connected.
-  if (params.connectDiagonals && L.bridgeEff > 0 && dark2d) {
+  // Bridge diagonal touches so the QR body is manifold and prints connected.
+  if (params.connectDiagonals && L.bridgeEff > 0 && modules2d) {
     const bridges = diagonalBridges(matrix, m, qrLeft, qrTop, L.bridgeEff);
-    if (bridges) dark2d = dark2d.fuse(bridges);
+    if (bridges) modules2d = modules2d.fuse(bridges);
   }
 
+  let frame2d = null;
   if (params.frame && fw > 0) {
     report(0.58, "frame");
-    const ring = maskedRect(tileW, tileH, cornerR, params.corners).cut(
+    frame2d = maskedRect(tileW, tileH, cornerR, params.corners).cut(
       maskedRect(tileW - 2 * fw, tileH - 2 * fw, innerR, params.corners)
     );
-    dark2d = dark2d ? dark2d.fuse(ring) : ring;
   }
 
   // Label-panel content (SVG image or rendered text, both delivered as polygon
-  // shapes). Kept as its OWN drawing so a problem glyph can't corrupt the module
-  // body — it's fused/extruded with a fallback below.
+  // shapes). Kept as its OWN drawing so a problem glyph can't corrupt the other
+  // bodies — extruded with a fallback below.
   let content2d = null;
   if (
     (params.panelContent === "svg" || params.panelContent === "text") &&
@@ -393,98 +411,137 @@ export function buildModel(p, report = () => {}) {
   const plate2d = maskedRect(tileW, tileH, cornerR, params.corners);
   const inlayDepth = Math.min(inlay, baseThickness - FLOOR_MIN);
 
-  // Combined dark 2D (modules+frame + optional panel content), fused once.
-  const dark2dFull =
-    content2d && dark2d ? dark2d.fuse(content2d) : content2d || dark2d;
+  // (drawing, name) pairs for every present color-2 body.
+  const darkDefs = [
+    [modules2d, "QR Code"],
+    [frame2d, "Frame"],
+    [content2d, "Label"],
+  ].filter(([d]) => d);
+
   const extrudeAt = (d, height, z) =>
     d.sketchOnPlane().extrude(height).translate([0, 0, z]);
 
-  // Assemble light + dark for the given print mode. If panel content makes the
-  // kernel fail anywhere downstream, the worker rebuilds this model with content
-  // stripped (panelContent "blank") — so resilience lives there, not here.
-  let light;
-  let dark;
-  if (params.printMode === "flat") {
-    // Flat: dark is a thin color inlay set into the TOP of the plate; the solid
-    // base below stays light and houses the magnets.
-    report(0.62, "plate");
-    const plate = plate2d.sketchOnPlane().extrude(baseThickness);
-    report(0.7, "shape");
-    if (dark2dFull) {
-      const z = baseThickness - inlayDepth;
-      dark = extrudeAt(dark2dFull, inlayDepth, z);
-      // Cut the pocket with a tool that OVERSHOOTS the top face — a coplanar
-      // tool/plate top face produces zero-area faces that pass the boolean but
-      // crash meshing (the flat-mode "mesh" failures).
-      const tool = extrudeAt(dark2dFull.clone(), inlayDepth + 0.02, z);
-      light = plate.cut(tool);
-    } else {
-      light = plate;
-    }
-  } else {
-    // Raised: solid plate, dark sits +blockHeight on top.
-    report(0.62, "plate");
-    light = plate2d.sketchOnPlane().extrude(baseThickness);
-    report(0.7, "shape");
-    dark = dark2dFull ? extrudeAt(dark2dFull, params.blockHeight, baseThickness) : null;
-  }
-
-  // ---- magnets: subtract chamfered pockets from the light body ----
-  if (params.magnets && L.magnetFits) {
-    const hx = tileW / 2 - L.inset;
-    const hy = tileH / 2 - L.inset;
-    const corners = [
+  // Subtract the chamfered magnet pockets from a (light) solid.
+  const cutMagnets = (solid) => {
+    if (!(params.magnets && L.magnetFits)) return solid;
+    const hx = tileW / 2 - L.insetX;
+    const hy = tileH / 2 - L.insetY;
+    let s = solid;
+    [
       [-1, -1],
       [1, -1],
       [-1, 1],
       [1, 1],
-    ];
-    corners.forEach(([sx, sy], k) => {
+    ].forEach(([sx, sy], k) => {
       const tool = magnetTool(L.holeR, CHAMFER, L.magnetDepth).translate([
         sx * hx,
         sy * hy,
         0,
       ]);
-      light = light.cut(tool);
+      s = s.cut(tool);
       report(0.78 + 0.07 * ((k + 1) / 4), "magnets");
     });
+    return s;
+  };
+
+  // Assemble each body for the given print mode. If panel content makes the
+  // kernel fail anywhere downstream, the worker rebuilds this model with content
+  // stripped (panelContent "blank") — so resilience lives there, not here.
+  const bodies = [];
+  if (params.printMode === "flat") {
+    // Flat: dark bodies are thin color inlays set into the TOP of the plate; the
+    // solid base below stays light and houses the magnets.
+    report(0.62, "plate");
+    let plate = plate2d.sketchOnPlane().extrude(baseThickness);
+    report(0.7, "shape");
+    const z = baseThickness - inlayDepth;
+    if (darkDefs.length) {
+      // Cut the pockets with one combined tool that OVERSHOOTS the top face — a
+      // coplanar tool/plate top face produces zero-area faces that pass the
+      // boolean but crash meshing (the flat-mode "mesh" failures).
+      let tool2d = darkDefs[0][0].clone();
+      for (let i = 1; i < darkDefs.length; i++)
+        tool2d = tool2d.fuse(darkDefs[i][0].clone());
+      plate = plate.cut(extrudeAt(tool2d, inlayDepth + 0.02, z));
+    }
+    plate = cutMagnets(plate);
+    bodies.push({ shape: plate, name: "Tile", colorKey: "light" });
+    for (const [d, name] of darkDefs)
+      bodies.push({ shape: extrudeAt(d, inlayDepth, z), name, colorKey: "dark" });
+  } else {
+    // Raised: solid plate, dark bodies sit +blockHeight on top.
+    report(0.62, "plate");
+    let plate = plate2d.sketchOnPlane().extrude(baseThickness);
+    plate = cutMagnets(plate);
+    report(0.7, "shape");
+    bodies.push({ shape: plate, name: "Tile", colorKey: "light" });
+    for (const [d, name] of darkDefs)
+      bodies.push({
+        shape: extrudeAt(d, params.blockHeight, baseThickness),
+        name,
+        colorKey: "dark",
+      });
   }
 
-  return { light, dark, layout: L };
+  return { bodies, layout: L };
 }
 
-/** Mesh both bodies for the three.js preview (called in the worker). */
-export function meshModel({ light, dark }, report = () => {}) {
+/** Mesh every body for the three.js preview (called in the worker). The mesh
+ * `name` is the colour key ("light"/"dark") so the UI material lookup is by
+ * colour, not by part — several dark bodies just all render dark. */
+export function meshModel({ bodies }, report = () => {}) {
   const shapes = [];
-  const meshOne = (body, name) => {
+  bodies.forEach((b, i) => {
+    report(0.86 + 0.13 * (i / bodies.length), "mesh");
     try {
-      return { name, faces: body.mesh(), edges: body.meshEdges() };
+      shapes.push({
+        name: b.colorKey,
+        faces: b.shape.mesh(),
+        edges: b.shape.meshEdges(),
+      });
     } catch (e) {
       // Localize the failure so the error names the body, not just "mesh".
-      throw new Error(`mesh failed on ${name} body (${e?.message ?? e})`);
+      throw new Error(`mesh failed on ${b.name} body (${e?.message ?? e})`);
     }
-  };
-  if (light) {
-    report(0.88, "mesh");
-    shapes.push(meshOne(light, "light"));
-  }
-  if (dark) {
-    report(0.94, "mesh");
-    shapes.push(meshOne(dark, "dark"));
-  }
+  });
   report(0.99, "mesh");
   return shapes;
 }
 
+// STEP/STL export colours for the two filaments (also written into the STEP so
+// slicers can auto-map by colour). Mirrors the preview materials in main.js.
+const EXPORT_COLOR = { light: "#e8e8e8", dark: "#1c1c1c" };
+
+// Clone so repeated exports (e.g. STEP then STL) don't consume the stored shapes.
+const fuseAll = (shapes) =>
+  shapes.reduce((acc, s) => (acc ? acc.fuse(s.clone()) : s.clone()), null);
+
 /**
- * Build the export shape.
- * - Raised: the two colors differ by height, so we fuse into ONE editable solid
- *   (two-color printing via a filament color-change at the module height).
- * - Flat: colors are coplanar, so keep two separate bodies for multi-material.
+ * STEP export.
+ * - Flat: each body is exported as its own NAMED, coloured solid (Tile / QR Code
+ *   / Frame / Label) so the slicer shows meaningful, separately-assignable parts.
+ * - Raised: the two colours differ only by height, so we fuse everything into ONE
+ *   editable solid (two-colour printing via a slicer colour-change at the module
+ *   height); names/colours don't apply.
  */
-export function compound({ light, dark, layout }) {
-  const parts = [light, dark].filter(Boolean);
-  if (parts.length < 2) return parts[0];
-  if (layout?.params?.printMode === "raised") return light.fuse(dark);
-  return makeCompound(parts);
+export function exportSTEPBlob({ bodies, layout }) {
+  if (!bodies?.length) return null;
+  if (layout?.params?.printMode === "raised")
+    return fuseAll(bodies.map((b) => b.shape)).blobSTEP();
+  return exportSTEP(
+    bodies.map((b) => ({
+      shape: b.shape.clone(),
+      name: b.name,
+      color: EXPORT_COLOR[b.colorKey],
+    }))
+  );
+}
+
+/** STL export — a plain mesh, so no names/colours: one fused solid in raised, a
+ * multi-solid compound in flat. */
+export function exportSTLBlob({ bodies, layout }) {
+  if (!bodies?.length) return null;
+  if (layout?.params?.printMode === "raised")
+    return fuseAll(bodies.map((b) => b.shape)).blobSTL();
+  return makeCompound(bodies.map((b) => b.shape.clone())).blobSTL();
 }

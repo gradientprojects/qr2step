@@ -4,7 +4,7 @@ import { expose } from "comlink";
 import opencascade from "replicad-opencascadejs/src/replicad_single.js";
 import opencascadeWasm from "replicad-opencascadejs/src/replicad_single.wasm?url";
 import { setOC } from "replicad";
-import { buildModel, meshModel, compound } from "./model.js";
+import { buildModel, meshModel, exportSTEPBlob, exportSTLBlob } from "./model.js";
 
 let ready = null;
 
@@ -58,12 +58,12 @@ function serializeLayout(L) {
 
 async function exportSTEP() {
   if (!current) return null;
-  return compound(current).blobSTEP();
+  return exportSTEPBlob(current);
 }
 
 async function exportSTL() {
   if (!current) return null;
-  return compound(current).blobSTL();
+  return exportSTLBlob(current);
 }
 
 expose({ build, exportSTEP, exportSTL });

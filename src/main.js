@@ -555,6 +555,7 @@ function updateReadouts(layout) {
     `${layout.bridgeEff.toFixed(2)} mm${layout.bridgeCapped ? " (capped)" : ""}`
   );
   lastTile = { w: layout.tileW, h: layout.tileH };
+  updateFilenameReadout();
   set("readout-modules", `${layout.count} × ${layout.count}`);
   const mEl = document.getElementById("readout-module-size");
   if (mEl) {
@@ -568,6 +569,46 @@ function updateReadouts(layout) {
   );
   set("readout-spacing", `${layout.spacingX.toFixed(1)} × ${layout.spacingY.toFixed(1)} mm`);
   if (!layout.magnetFits) set("readout-spacing", "magnet won't fit — adjust ID/size");
+}
+
+// ---- export file naming ----
+// Slug a URL/string into a safe filename base: drop the scheme + www, lowercase,
+// keep [a-z0-9_], turn everything else into single dashes, cap length.
+function slugify(text) {
+  let s = (text || "")
+    .trim()
+    .replace(/^[a-z][a-z0-9+.-]*:\/\//i, "")
+    .replace(/^www\./i, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9_]+/g, "-")
+    .replace(/-{2,}/g, "-")
+    .replace(/^-|-$/g, "");
+  if (s.length > 40) s = s.slice(0, 40).replace(/-+$/, "");
+  return s || "qrcode";
+}
+
+// Content-derived base, or the user's override (also slugged).
+function baseName(p) {
+  const o = p.exportName?.trim();
+  return slugify(o || p.text);
+}
+
+// Full model stem: base + tile size + EC level + print mode (+ -mag). The build
+// variants (size/mode) keep flat vs raised vs resized exports from colliding.
+function modelStem(p) {
+  return (
+    `${baseName(p)}` +
+    `-${Math.round(lastTile.w)}x${Math.round(lastTile.h)}mm` +
+    `-ec${p.ecLevel}` +
+    `-${p.printMode}` +
+    (p.magnets ? "-mag" : "")
+  );
+}
+
+// Reflect the resolved export name in the sidebar so it's never a surprise.
+function updateFilenameReadout() {
+  const el = document.getElementById("readout-filename");
+  if (el) el.textContent = `${modelStem(readParams())}.step / .stl`;
 }
 
 // ---- downloads ----
@@ -584,7 +625,7 @@ async function download(kind) {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `qr2step.${kind}`;
+    a.download = `${modelStem(readParams())}.${kind}`;
     a.click();
     URL.revokeObjectURL(url);
     completeAllSteps();
@@ -627,7 +668,7 @@ function downloadJSON(obj, filename) {
 }
 
 function exportSettings() {
-  downloadJSON({ app: "qr2step", version: 1, params: readParams() }, "qr2step-settings.json");
+  downloadJSON({ app: "qr2step", version: 1, params: readParams() }, `${baseName(readParams())}-settings.json`);
 }
 
 // Strip heavy/derived geometry from params so the report stays small + readable.
@@ -739,9 +780,12 @@ fileInput.addEventListener("change", async () => {
 
 // ---- boot ----
 buildControls(document.getElementById("controls"), {
-  onChange: () => {
+  onChange: (f) => {
     applyVisibility(); // hide fields that don't apply to current settings
     saveSettings(); // remember for next visit
+    updateFilenameReadout(); // cheap; reflects the name instantly
+    // The export name doesn't affect geometry — skip the OCCT rebuild for it.
+    if (f?.name === "exportName") return;
     scheduleRegen();
   },
   onDownloadSTEP: () => download("step"),
