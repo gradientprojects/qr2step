@@ -73,32 +73,133 @@ orthoCamera.up.set(0, 0, 1);
 let camera = perspCamera; // active camera (swapped by setActiveCamera)
 
 const controls = new OrbitControls(camera, canvas);
-controls.enableDamping = true;
-controls.enablePan = true;
-controls.screenSpacePanning = true; // pan in the screen plane (intuitive for a flat tile)
-// Onshape-style: middle-drag rotates, Ctrl+middle-drag pans, scroll zooms.
-// OrbitControls has no modifier binding, so we flip the middle action while
-// Ctrl is held. Left-drag also rotates (trackpad / no-middle-button fallback).
-controls.mouseButtons = {
-  LEFT: THREE.MOUSE.ROTATE,
-  MIDDLE: THREE.MOUSE.ROTATE,
-  RIGHT: THREE.MOUSE.PAN,
-};
+controls.enableDamping = true; // smooths wheel zoom + touch gestures
+controls.zoomToCursor = true; // scroll-zoom toward the pointer, not the centre
+// Ignore ALL mouse buttons (-1 = no action) so OrbitControls never acts on a
+// mouse drag — mouse navigation is handled by the listeners below. Touch and
+// wheel zoom stay with OrbitControls, so one-finger touch still rotates and
+// two-finger still pans/zooms.
+controls.mouseButtons = { LEFT: -1, MIDDLE: -1, RIGHT: -1 };
 controls.touches = {
   ONE: THREE.TOUCH.ROTATE,
   TWO: THREE.TOUCH.DOLLY_PAN, // two-finger pinch-zoom + pan
 };
 
-function setMiddleAction(pan) {
-  controls.mouseButtons.MIDDLE = pan ? THREE.MOUSE.PAN : THREE.MOUSE.ROTATE;
+// ---- mouse navigation (handled directly, not via OrbitControls) ----
+// This avoids OrbitControls' button-map timing, event ordering, the macOS
+// "Ctrl+click = right button" quirk, and pan damping:
+//   left-drag / middle-drag → orbit around the point under the cursor
+//   Ctrl+drag / right-drag  → pan (screen-space, undamped → as snappy as orbit)
+//   scroll                  → zoom toward the cursor (OrbitControls)
+// Ctrl/⌘ is the pan modifier. Touch (OrbitControls): one-finger rotate, two-finger pan/zoom.
+const raycaster = new THREE.Raycaster();
+let drag = null; // { mode: "orbit" | "pan", x, y, pivot }
+const ROT_SPEED = 0.005; // radians per pixel
+
+function pickPivot(e) {
+  const rect = canvas.getBoundingClientRect();
+  raycaster.setFromCamera(
+    new THREE.Vector2(
+      ((e.clientX - rect.left) / rect.width) * 2 - 1,
+      -((e.clientY - rect.top) / rect.height) * 2 + 1
+    ),
+    camera
+  );
+  const hits = modelGroup.children.length
+    ? raycaster.intersectObjects(modelGroup.children, true)
+    : [];
+  return (hits[0]?.point ?? controls.target).clone();
 }
-window.addEventListener("keydown", (e) => {
-  if (e.key === "Control") setMiddleAction(true);
+
+// Rigidly rotate the camera about the pivot — the pivot stays fixed on screen.
+function orbitBy(pivot, dx, dy) {
+  const up = camera.up.clone().normalize();
+  const forward = new THREE.Vector3(0, 0, -1)
+    .applyQuaternion(camera.quaternion)
+    .normalize();
+  const right = new THREE.Vector3().crossVectors(forward, up).normalize();
+  let polar = -dy * ROT_SPEED;
+  // Stop short of the poles so the view never flips or rolls.
+  const probe = forward
+    .clone()
+    .applyQuaternion(new THREE.Quaternion().setFromAxisAngle(right, polar));
+  const a = probe.angleTo(up);
+  if (a < 0.05 || a > Math.PI - 0.05) polar = 0;
+  const q = new THREE.Quaternion()
+    .setFromAxisAngle(up, -dx * ROT_SPEED)
+    .multiply(new THREE.Quaternion().setFromAxisAngle(right, polar));
+  camera.position.sub(pivot).applyQuaternion(q).add(pivot);
+  camera.quaternion.premultiply(q);
+}
+
+// Screen-space pan: translate camera + target so the scene tracks the cursor 1:1.
+function panBy(dx, dy) {
+  const h = canvas.clientHeight || 1;
+  const worldPerPx = camera.isPerspectiveCamera
+    ? (2 * camera.position.distanceTo(controls.target) *
+        Math.tan(((camera.fov * Math.PI) / 180) / 2)) /
+      h
+    : (camera.top - camera.bottom) / camera.zoom / h;
+  const right = new THREE.Vector3().setFromMatrixColumn(camera.matrix, 0);
+  const up = new THREE.Vector3().setFromMatrixColumn(camera.matrix, 1);
+  const move = right
+    .multiplyScalar(-dx * worldPerPx)
+    .addScaledVector(up, dy * worldPerPx);
+  camera.position.add(move);
+  controls.target.add(move);
+}
+
+canvas.addEventListener("mousedown", (e) => {
+  if (e.button === 1) e.preventDefault(); // suppress middle-button autoscroll
 });
-window.addEventListener("keyup", (e) => {
-  if (e.key === "Control") setMiddleAction(false);
+// Suppress the context menu so right-drag and macOS Ctrl+left-drag (which the OS
+// delivers as a right-button context-click) aren't interrupted mid-drag.
+canvas.addEventListener("contextmenu", (e) => e.preventDefault());
+canvas.addEventListener("pointerdown", (e) => {
+  if (e.pointerType === "touch") return; // OrbitControls handles touch
+  const mod = e.ctrlKey || e.metaKey;
+  // Ctrl/⌘ is the pan modifier: Ctrl+drag pans on any button. Plain left/middle
+  // orbits; right always pans (incl. macOS Ctrl+left, delivered as right).
+  let mode = null;
+  if (e.button === 0) mode = mod ? "pan" : "orbit";
+  else if (e.button === 1) mode = mod ? "pan" : "orbit";
+  else if (e.button === 2) mode = "pan";
+  if (!mode) return;
+  e.preventDefault();
+  drag = {
+    mode,
+    x: e.clientX,
+    y: e.clientY,
+    pivot: mode === "orbit" ? pickPivot(e) : null,
+  };
+  canvas.setPointerCapture?.(e.pointerId);
 });
-window.addEventListener("blur", () => setMiddleAction(false));
+canvas.addEventListener("pointermove", (e) => {
+  if (!drag) return;
+  const dx = e.clientX - drag.x;
+  const dy = e.clientY - drag.y;
+  drag.x = e.clientX;
+  drag.y = e.clientY;
+  if (drag.mode === "orbit") orbitBy(drag.pivot, dx, dy);
+  else panBy(dx, dy);
+});
+function endDrag() {
+  if (!drag) return;
+  if (drag.mode === "orbit") {
+    // Park the OrbitControls target on the view axis (at the pivot's depth) so
+    // wheel-zoom resumes with no re-aim.
+    const forward = new THREE.Vector3(0, 0, -1)
+      .applyQuaternion(camera.quaternion)
+      .normalize();
+    controls.target
+      .copy(camera.position)
+      .addScaledVector(forward, camera.position.distanceTo(drag.pivot));
+  }
+  drag = null;
+  controls.update();
+}
+window.addEventListener("pointerup", endDrag);
+window.addEventListener("pointercancel", endDrag);
 
 // Swap the active camera, carrying over position/up so the view doesn't jump.
 function setActiveCamera(cam) {
@@ -167,7 +268,7 @@ window.addEventListener("resize", resize);
 function animate() {
   requestAnimationFrame(animate);
   if (!panelEl.hidden) tickBar();
-  controls.update();
+  if (!drag) controls.update(); // custom nav drives the camera directly while dragging
   renderer.render(scene, camera);
 }
 
@@ -462,6 +563,18 @@ async function prepareContent(params) {
 // ---- build pipeline (debounced) ----
 let building = false;
 let queued = false;
+// Serialized params of the model currently on screen. A queued rebuild (or any
+// no-op field event) whose params match this is skipped, so rapid clicks don't
+// trigger a redundant rebuild after the in-flight one finishes. Busted to null
+// on SVG/font upload (content that readParams() doesn't capture).
+let lastBuiltKey = null;
+
+// Undo/redo history of param snapshots, recorded at build-commit points (so they
+// inherit the debounce coalescing). suppressHistory marks a build that is itself
+// the result of an undo/redo, so applying history doesn't get recorded again.
+const undoStack = [];
+const redoStack = [];
+let suppressHistory = false;
 
 // "Uploaded font" is selected but none is loaded yet (e.g. just picked the
 // option, or reloaded — the font lives only in memory). Don't build with a
@@ -482,11 +595,15 @@ async function regenerate() {
   }
   if (awaitingFontUpload(readParams())) {
     hidePanel();
-    setStatus('Upload a font to render the panel text (use "Upload font…").', false, false);
+    setStatus('Choose a font file to render the panel text (use "Choose font file…").', false, false);
     return;
   }
-  building = true;
   const params = readParams();
+  // Nothing changed since the last successful build — don't rebuild the same
+  // thing (catches a queued rebuild whose net change cancelled out).
+  const key = JSON.stringify(params);
+  if (key === lastBuiltKey) return;
+  building = true;
   await prepareContent(params);
   showPanel("Building", buildStepList(params));
   setStatus("");
@@ -502,6 +619,15 @@ async function regenerate() {
     const { shapes, layout } = await api.build(params, onProgress);
     showModel(shapes);
     updateReadouts(layout);
+    // Record the state we're leaving so it can be undone to (skip the very first
+    // build, and skip builds that are themselves an undo/redo).
+    if (!suppressHistory && lastBuiltKey !== null && lastBuiltKey !== key) {
+      undoStack.push(lastBuiltKey);
+      if (undoStack.length > 50) undoStack.shift();
+      redoStack.length = 0; // a fresh edit invalidates the redo path
+    }
+    suppressHistory = false;
+    lastBuiltKey = key; // mark this exact state as built (success only)
     engineReady = true;
     completeAllSteps();
     setOverall(1);
@@ -539,6 +665,48 @@ function scheduleRegen(delay = 300) {
   clearTimeout(debounceTimer);
   debounceTimer = setTimeout(regenerate, delay);
 }
+
+// Apply a history snapshot (param string) without recording it as a new edit.
+function applyHistoryState(stateStr) {
+  suppressHistory = true;
+  setParams(JSON.parse(stateStr));
+  applyVisibility();
+  saveSettings();
+  updateFilenameReadout();
+  regenerate();
+}
+function undo() {
+  if (!undoStack.length) {
+    setStatus("Nothing to undo");
+    return;
+  }
+  redoStack.push(lastBuiltKey ?? JSON.stringify(readParams()));
+  applyHistoryState(undoStack.pop());
+}
+function redo() {
+  if (!redoStack.length) {
+    setStatus("Nothing to redo");
+    return;
+  }
+  undoStack.push(lastBuiltKey ?? JSON.stringify(readParams()));
+  applyHistoryState(redoStack.pop());
+}
+// Cmd/Ctrl+Z = undo, Cmd/Ctrl+Shift+Z = redo. Skip when a textual field is
+// focused so the field's own native text undo keeps working there.
+window.addEventListener("keydown", (e) => {
+  if (!(e.ctrlKey || e.metaKey) || e.key.toLowerCase() !== "z") return;
+  const t = e.target;
+  const tag = t?.tagName;
+  const textual =
+    (tag === "INPUT" &&
+      /^(text|number|search|url|email|tel|password)$/.test(t.type || "text")) ||
+    tag === "TEXTAREA" ||
+    t?.isContentEditable;
+  if (textual) return;
+  e.preventDefault();
+  if (e.shiftKey) redo();
+  else undo();
+});
 
 function setStatus(msg, busy = false, error = false) {
   statusEl.textContent = msg;
@@ -814,6 +982,7 @@ svgInput.addEventListener("change", async () => {
     svgData = parseSvg(await file.text());
     const nameEl = document.getElementById("f-svgFile-name");
     if (nameEl) nameEl.textContent = svgData ? file.name : "no shapes found";
+    lastBuiltKey = null; // content changed but params didn't — force a rebuild
     regenerate();
   } catch {
     setStatus("Couldn't read that SVG", false, true);
@@ -839,6 +1008,7 @@ fontInput.addEventListener("change", async () => {
     if (sel) sel.value = "uploaded";
     logEvent("font-uploaded", { file: file.name, outlines: uploadedFont.outlinesFormat, unitsPerEm: uploadedFont.unitsPerEm });
     saveSettings();
+    lastBuiltKey = null; // content changed but params didn't — force a rebuild
     regenerate();
   } catch {
     uploadedFont = null;

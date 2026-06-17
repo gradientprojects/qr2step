@@ -29,8 +29,16 @@ body {
   padding: 16px 18px 32px;
 }
 
+.panel-header {
+  display: flex;
+  align-items: stretch;
+  justify-content: space-between;
+  gap: 10px;
+}
+.panel-title { min-width: 0; }
 .panel-header h1 { margin: 0; font-size: 22px; letter-spacing: 0.5px; }
 .panel-header p { margin: 2px 0 8px; color: var(--muted); font-size: 13px; }
+.header-reset { flex: 0 0 auto; align-self: stretch; white-space: nowrap; }
 
 #controls h2 {
   font-size: 12px;
@@ -41,6 +49,23 @@ body {
   border-bottom: 1px solid var(--border);
   padding-bottom: 4px;
 }
+#controls h2.section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.section-reset {
+  background: none;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  padding: 0 4px;
+  border-radius: 4px;
+}
+.section-reset:hover { color: var(--text); background: var(--panel-2); }
 
 .field { display: flex; flex-direction: column; gap: 4px; margin-bottom: 10px; }
 .field.inline { flex-direction: row; align-items: center; gap: 8px; }

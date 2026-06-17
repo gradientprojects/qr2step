@@ -74,7 +74,7 @@ const FIELDS = [
       ["text", "Text"],
       ["svg", "SVG"],
     ],
-    tip: "Blank = bare plate to model in CAD later. Text = a string rendered in a bundled font. SVG = upload a vector image. All are extruded into the panel as the dark color.",
+    tip: "Blank = bare plate to model in CAD later. Text = a string rendered in a bundled font. SVG = choose a local vector image. All are extruded into the panel as the dark color.",
     showWhen: (p) => p.panelSide !== "none",
     rowGroup: "panel",
   },
@@ -89,14 +89,14 @@ const FIELDS = [
       ["archivoBlack", "Archivo Black"],
       ["anton", "Anton"],
       ["spaceMono", "Space Mono"],
-      ["uploaded", "Uploaded font"],
+      ["uploaded", "Your own file"],
     ],
-    tip: "Bundled bold fonts (all SIL Open Font License), or your own uploaded font.",
+    tip: "Bundled bold fonts (all SIL Open Font License), or your own font file (read locally — never sent anywhere).",
     showWhen: (p) => p.panelSide !== "none" && p.panelContent === "text",
     rowGroup: "textopts",
   },
   { name: "textHeight", label: "Text height", type: "number", value: 6, min: 3, max: 50, step: 0.5, unit: "mm", tip: "Target height of the text. Flagged if it would fall below ~3 mm (gets hard to print/read).", showWhen: (p) => p.panelSide !== "none" && p.panelContent === "text", rowGroup: "textopts" },
-  { type: "action", name: "fontFile", label: "Custom font", buttonText: "Upload font…", note: "Parsed in your browser — the file never leaves your device.", showWhen: (p) => p.panelSide !== "none" && p.panelContent === "text" && p.fontChoice === "uploaded" },
+  { type: "action", name: "fontFile", label: "Custom font", buttonText: "Choose font file…", note: "Read in your browser — the file is never sent anywhere; only its glyph outlines are baked into your downloaded STEP.", showWhen: (p) => p.panelSide !== "none" && p.panelContent === "text" && p.fontChoice === "uploaded" },
   {
     name: "alignH",
     label: "Horizontal align",
@@ -164,14 +164,37 @@ export function buildControls(root, handlers) {
 
   const header = document.createElement("div");
   header.className = "panel-header";
-  header.innerHTML = `<h1>qr2step</h1><p>URL → 3D-printable QR → <strong>STEP</strong></p>`;
+  const titleWrap = document.createElement("div");
+  titleWrap.className = "panel-title";
+  titleWrap.innerHTML = `<h1>qr2step</h1><p>URL → 3D-printable QR → <strong>STEP</strong></p>`;
+  const headerReset = button("Reset all", "small", () => {
+    if (confirm("Reset all settings to their defaults?")) {
+      resetGroup(); // no arg → every field
+      handlers.onChange();
+    }
+  });
+  headerReset.classList.add("header-reset");
+  headerReset.title = "Reset every control to its default value.";
+  header.append(titleWrap, headerReset);
   root.appendChild(header);
 
   for (let i = 0; i < FIELDS.length; i++) {
     const f = FIELDS[i];
     if (f.group) {
       const h = document.createElement("h2");
-      h.textContent = f.group;
+      h.className = "section-head";
+      const label = document.createElement("span");
+      label.textContent = f.group;
+      const rb = document.createElement("button");
+      rb.type = "button";
+      rb.className = "section-reset";
+      rb.textContent = "↺";
+      rb.title = `Reset ${f.group} to defaults`;
+      rb.addEventListener("click", () => {
+        resetGroup(f.group);
+        handlers.onChange();
+      });
+      h.append(label, rb);
       root.appendChild(h);
       continue;
     }
@@ -409,6 +432,27 @@ export function setParams(params) {
     } else if (f.type === "checkbox") el.checked = !!params[f.name];
     else el.value = params[f.name];
   }
+}
+
+// Build a { name: defaultValue } map from the field definitions, optionally
+// limited to the fields under one section (group) heading.
+function fieldDefaults(group) {
+  const out = {};
+  let cur = null;
+  for (const f of FIELDS) {
+    if (f.group) {
+      cur = f.group;
+      continue;
+    }
+    if (f.type === "info" || f.type === "action" || !f.name) continue;
+    if (!group || cur === group) out[f.name] = f.value;
+  }
+  return out;
+}
+
+// Reset one section (or, with no arg, every field) to its default value.
+function resetGroup(group) {
+  setParams(fieldDefaults(group));
 }
 
 // Show/hide fields whose `showWhen` predicate depends on other fields.

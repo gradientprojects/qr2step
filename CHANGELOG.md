@@ -14,9 +14,16 @@ Initial release.
 - Error-correction levels L/M/Q/H (default Q, robust for printed codes); live module-size readout with a too-small-to-print warning.
 - Outer frame, rounded outer corners with per-corner selection, quiet-zone enforcement (min 4 modules).
 - Corner magnets: chamfered blind pockets with floor and edge-clearance clamps. Position by **inset from corner** (symmetric) or **XY pattern** (independent centre-to-centre Spacing X / Spacing Y, to match a mounting jig/base).
-- Label panel on any side: blank plate, **text** (bundled OFL fonts or your own uploaded font, processed entirely in-browser), or **SVG** upload — with horizontal/vertical alignment.
+- Label panel on any side: blank plate, **text** (bundled OFL fonts or your own font file, read entirely in-browser), or **SVG** — with horizontal/vertical alignment.
 - Settings export/import, plus a one-click bug report (prefilled GitHub issue) and diagnostics log export.
 - GitHub Actions deploy to GitHub Pages.
+
+### Navigation & editing
+
+- Camera: **orbit around the point under the cursor** (left/middle-drag), **pan with Ctrl+drag or right-drag** (snappy/undamped), scroll **zooms toward the pointer**. Touch: one-finger rotate, two-finger pan/zoom.
+- **Undo / redo** (Cmd/Ctrl+Z, Cmd/Ctrl+Shift+Z) across parameter changes.
+- **Reset to defaults** — per-section (↺ on each heading) and a global **Reset all** in the header.
+- Edits debounce before the (expensive) rebuild, and rebuilds that wouldn't change anything are skipped.
 
 ### Fonts
 
