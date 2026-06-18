@@ -85,30 +85,79 @@ function maskedRect(w, h, r, mask = ALL_CORNERS) {
 }
 
 /**
- * Merge a list of {x,y,w,h} module rects (module units) into one 2D drawing.
- *
- * The rects from greedy-meshing TILE the dark region — they share exactly
- * coincident edges. replicad's 2D blueprint boolean is fragile on coincident
- * collinear edges and would intermittently abort (a bare kernel "24") partway
- * through a long pairwise fuse on dense codes. So we instead union the
- * rectangles with polygon-clipping (martinez), which is robust to coincident
- * edges, then build replicad geometry from the few resulting polygons. Edge-
- * sharing rects merge into one clean ring; corner-only touches stay separate
- * (the diagonal bridges handle those); enclosed light cells become holes.
- *
- * Geometrically identical to the old path (modules are sharp, radius-0 rects).
- * Calls onRect(done, total) so the UI can show real progress.
+ * Each {x,y,w,h} module rect (module units) → a closed polygon ring in mm,
+ * ready for polygon-clipping. Row 0 is the TOP of the QR, so y grows downward.
  */
-function modulesDrawing(rects, m, qrLeft, qrTop, onRect) {
-  if (!rects.length) return null;
-  // Each rect → a closed polygon ring in mm. Row 0 is the TOP, so y grows down.
-  const polys = rects.map(({ x, y, w, h }) => {
+function modulePolys(rects, m, qrLeft, qrTop) {
+  return rects.map(({ x, y, w, h }) => {
     const x0 = qrLeft + x * m;
     const x1 = qrLeft + (x + w) * m;
     const yTop = qrTop - y * m;
     const yBot = qrTop - (y + h) * m;
     return [[[x0, yBot], [x1, yBot], [x1, yTop], [x0, yTop], [x0, yBot]]];
   });
+}
+
+/**
+ * Polygons for the diagonal "pinch" bridges. Where two diagonally-opposite dark
+ * modules meet at a single corner with the other two cells light, emit a thin
+ * bar (one module pitch long, `bridge` wide) rotated to run ALONG the dark-to-
+ * dark diagonal. Unioned with the module polygons (below) this welds the two
+ * dark cells into one manifold, printable region and barely enters the light
+ * ones. Returned as plain rotated rectangles (not capsules): the rounded ends
+ * sit fully inside the dark squares, so they'd be invisible anyway — and going
+ * through polygon-clipping keeps the join sliver-free, which sharp-vs-rounded
+ * does not affect.
+ */
+function bridgePolys(matrix, m, qrLeft, qrTop, bridge) {
+  const n = matrix.length;
+  const hl = m / 2; // half length: spans one module pitch along the diagonal
+  const hw = bridge / 2;
+  const SIN45 = Math.SQRT1_2;
+  const polys = [];
+  for (let y = 0; y < n - 1; y++) {
+    for (let x = 0; x < n - 1; x++) {
+      const a = matrix[y][x];
+      const b = matrix[y][x + 1];
+      const c = matrix[y + 1][x];
+      const d = matrix[y + 1][x + 1];
+      const ad = a && d && !b && !c; // dark on the "\" diagonal
+      const bc = b && c && !a && !d; // dark on the "/" diagonal
+      if (!ad && !bc) continue;
+      const cx = qrLeft + (x + 1) * m; // shared corner of the 2×2 block
+      const cy = qrTop - (y + 1) * m;
+      // Rotate the axis-aligned rect [±hl,±hw] about the corner so its long axis
+      // runs along the dark diagonal. "\" (ad) points +x/−y (−45°), "/" (bc)
+      // points +x/+y (+45°). Rotation by θ: (x',y') = (lx·c−ly·s, lx·s+ly·c).
+      const c45 = SIN45;
+      const s45 = ad ? -SIN45 : SIN45;
+      const corner = (lx, ly) => [
+        cx + lx * c45 - ly * s45,
+        cy + lx * s45 + ly * c45,
+      ];
+      polys.push([[
+        corner(-hl, -hw), corner(hl, -hw), corner(hl, hw), corner(-hl, hw), corner(-hl, -hw),
+      ]]);
+    }
+  }
+  return polys;
+}
+
+/**
+ * Union a set of polygon rings (modules + bridges) into one 2D drawing.
+ *
+ * The module rects from greedy-meshing TILE the dark region — they share
+ * exactly coincident edges, and the bridges overlap module corners. replicad's
+ * 2D blueprint boolean is fragile on coincident/collinear edges and would
+ * intermittently abort (a bare kernel "24") on dense codes, or leave thin
+ * slivers that later crashed meshing. So we union everything with polygon-
+ * clipping (martinez) — robust to coincident edges — then build replicad
+ * geometry from the few resulting polygons: edge-sharing rects merge into one
+ * clean ring, bridges weld diagonal cells transversally (no slivers), and
+ * enclosed light cells become holes. Calls onRect(done,total) for progress.
+ */
+function unionToDrawing(polys, onRect) {
+  if (!polys.length) return null;
   const merged = polygonClipping.union(polys[0], ...polys.slice(1));
   const total = merged.length || 1;
   let done = 0;
@@ -136,38 +185,6 @@ function modulesDrawing(rects, m, qrLeft, qrTop, onRect) {
     onRect?.(++done, total);
   }
   return result;
-}
-
-/**
- * Find diagonal "pinch" points — where two diagonally-opposite dark modules
- * meet at a single corner with the other two cells light. Returns a fused
- * drawing of small bridge squares that turn those non-manifold point-contacts
- * into real (manifold, printable) connections. Null if none.
- */
-function diagonalBridges(matrix, m, qrLeft, qrTop, bridge) {
-  const n = matrix.length;
-  const len = m; // capsule spans one module pitch along the diagonal
-  let dwg = null;
-  for (let y = 0; y < n - 1; y++) {
-    for (let x = 0; x < n - 1; x++) {
-      const a = matrix[y][x];
-      const b = matrix[y][x + 1];
-      const c = matrix[y + 1][x];
-      const d = matrix[y + 1][x + 1];
-      const ad = a && d && !b && !c; // dark on the "\" diagonal
-      const bc = b && c && !a && !d; // dark on the "/" diagonal
-      if (!ad && !bc) continue;
-      const cx = qrLeft + (x + 1) * m; // shared corner of the 2×2 block
-      const cy = qrTop - (y + 1) * m;
-      // A rounded bar (capsule) rotated to run ALONG the dark-to-dark diagonal,
-      // so it welds the two dark cells and barely enters the two light ones.
-      const bar = drawRoundedRectangle(len, bridge, bridge / 2)
-        .rotate(ad ? -45 : 45)
-        .translate([cx, cy]);
-      dwg = dwg ? dwg.fuse(bar) : bar;
-    }
-  }
-  return dwg;
 }
 
 // Collapse points closer than this (mm). After scaling glyph/SVG outlines down
@@ -395,16 +412,16 @@ export function buildModel(p, report = () => {}) {
   // modules sit inside the quiet zone, the frame outside it, the label on the
   // panel — so no booleans are needed between them. ----
   const rects = mergeRects(matrix);
-  // Module fusing dominates the build → maps to 0.05 .. 0.55 of the bar.
-  let modules2d = modulesDrawing(rects, m, qrLeft, qrTop, (i, total) =>
+  // Modules + diagonal bridges go through ONE polygon-clipping union so the QR
+  // body is robust and sliver-free. Bridges weld diagonally-touching modules
+  // into a manifold, printable region. Dominates the build → maps to 0.05 .. 0.55.
+  let polys = modulePolys(rects, m, qrLeft, qrTop);
+  if (params.connectDiagonals && L.bridgeEff > 0) {
+    polys = polys.concat(bridgePolys(matrix, m, qrLeft, qrTop, L.bridgeEff));
+  }
+  const modules2d = unionToDrawing(polys, (i, total) =>
     report(0.05 + 0.5 * (i / total), "modules")
   );
-
-  // Bridge diagonal touches so the QR body is manifold and prints connected.
-  if (params.connectDiagonals && L.bridgeEff > 0 && modules2d) {
-    const bridges = diagonalBridges(matrix, m, qrLeft, qrTop, L.bridgeEff);
-    if (bridges) modules2d = modules2d.fuse(bridges);
-  }
 
   let frame2d = null;
   if (params.frame && fw > 0) {
