@@ -1,6 +1,6 @@
 {
   "name": "qr2step",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Browser tool: turn a URL into a 3D-printable, two-color QR code exported as a STEP file.",
   "type": "module",
   "license": "MIT",
