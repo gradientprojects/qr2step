@@ -1,14 +1,14 @@
 // Two-body QR geometry built with replicad (OpenCASCADE).
 // Body "light" = base plate + background + quiet zone + panel plate (color 1).
-// Body "dark"  = QR modules + outer frame (+ text/SVG, TODO) (color 2).
+// Body "dark"  = QR modules + outer frame + panel label (text/SVG) (color 2).
 //
 // All units are millimetres. The tile is centred on the origin in XY, with the
 // bottom face on the Z=0 plane and growing +Z.
 //
-// NOTE (v1 scaffold): label-panel TEXT and SVG are not yet extruded — a "blank"
-// panel simply extends the plate so it can be modelled in CAD. Text/SVG is the
-// next iteration. Everything else (modules, frame, corner radius, magnets,
-// raised/flat) is implemented.
+// The label panel supports a blank plate, rendered TEXT (bundled or uploaded
+// fonts, tessellated to outlines), or an imported SVG — all delivered as polygon
+// shapes and extruded into the dark body. Modules, frame, corner radius, magnets,
+// and raised/flat print modes are all implemented.
 import {
   drawRoundedRectangle,
   draw,
