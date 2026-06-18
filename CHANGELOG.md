@@ -28,3 +28,9 @@ Initial release.
 ### Fonts
 
 Bundled label fonts under the SIL Open Font License (see `src/fonts/*-OFL.txt`): Archivo Black, Anton, Space Mono. Uploaded fonts never leave your browser.
+
+### Fixes
+
+- Fixed an intermittent build failure on dense codes (notably higher EC levels): the QR modules are now merged with a robust polygon union instead of a chain of CAD booleans, which also speeds up the build.
+- Clicking into the 3D preview now moves keyboard focus there, so the **N** (normal view) shortcut works immediately without first clicking out of a field.
+- The diagonal-bridge readout is clearer: it only shows when the connector width was actually capped, and tells you the QR-area size needed to reach your requested width.

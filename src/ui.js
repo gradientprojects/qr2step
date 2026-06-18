@@ -45,7 +45,7 @@ const FIELDS = [
   { group: "Layout" },
   { name: "connectDiagonals", label: "Connect diagonal modules", type: "checkbox", value: true, tip: "Bridges diagonally-touching modules with a sliver of material. Removes non-manifold corner points so the model imports cleanly into CAD and prints as one connected piece. On by default — strongly recommended." },
   { name: "bridgeWidth", label: "Bridge width", type: "number", value: 0.45, min: 0.1, max: 1, step: 0.05, unit: "mm", tip: "Target connector width. Default 0.45 mm = standard extrusion width for a 0.4 mm nozzle. Auto-capped to ⅓ of a module on dense codes so it never hurts scanning.", showWhen: (p) => p.connectDiagonals },
-  { type: "info", id: "readout-bridge", label: "Bridge (effective)", tip: "Actual connector width after the ⅓-module scannability cap.", showWhen: (p) => p.connectDiagonals },
+  { type: "info", id: "readout-bridge", label: "Bridge capped", initHidden: true, tip: "The diagonal connector unavoidably pokes a little into the two neighbouring light cells, so it's limited to ⅓ of a module to protect scanning. Your bridge width is wider than that at this module size, so it was trimmed. Enlarge the QR area (shown) or lower the EC level to reach the full width." },
 
   { group: "Label panel" },
   {
@@ -338,6 +338,7 @@ function renderField(f, onChange) {
     const row = document.createElement("div");
     row.className = "field field-info";
     row.dataset.field = f.id;
+    if (f.initHidden) row.hidden = true; // shown later by updateReadouts when relevant
     if (f.tip) row.title = f.tip;
     row.innerHTML = `<span class="field-label"></span><span class="info-val" id="${f.id}">—</span>`;
     row.querySelector(".field-label").textContent = f.label;

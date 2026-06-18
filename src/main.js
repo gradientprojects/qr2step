@@ -152,6 +152,14 @@ function panBy(dx, dy) {
 canvas.addEventListener("mousedown", (e) => {
   if (e.button === 1) e.preventDefault(); // suppress middle-button autoscroll
 });
+// Clicking into the preview should take focus away from any sidebar field, so
+// keyboard shortcuts (e.g. N for the normal view) work without an extra click.
+canvas.addEventListener("pointerdown", () => {
+  const a = document.activeElement;
+  if (a && (a.tagName === "INPUT" || a.tagName === "TEXTAREA" || a.tagName === "SELECT")) {
+    a.blur();
+  }
+});
 // Suppress the context menu so right-drag and macOS Ctrl+left-drag (which the OS
 // delivers as a right-button context-click) aren't interrupted mid-drag.
 canvas.addEventListener("contextmenu", (e) => e.preventDefault());
@@ -721,10 +729,19 @@ function updateReadouts(layout) {
     if (el) el.textContent = txt;
   };
   set("readout-qrpanel", `${layout.tileW.toFixed(1)} × ${layout.tileH.toFixed(1)} mm`);
-  set(
-    "readout-bridge",
-    `${layout.bridgeEff.toFixed(2)} mm${layout.bridgeCapped ? " (capped)" : ""}`
-  );
+  // The "bridge used" line only earns its space when the requested width was
+  // actually trimmed by the ⅓-module cap — otherwise effective == requested and
+  // it's just noise. When capped, also surface the QR-area size that would lift
+  // the cap, so the number is actionable rather than mysterious.
+  const bridgeRow = document.querySelector('.field[data-field="readout-bridge"]');
+  const bridgeCapped = layout.connectDiagonals && layout.bridgeCapped;
+  if (bridgeRow) bridgeRow.hidden = !bridgeCapped;
+  if (bridgeCapped) {
+    set(
+      "readout-bridge",
+      `${layout.bridgeEff.toFixed(2)} mm · need ≥ ${Math.ceil(layout.bridgeFull)} mm QR area for ${layout.bridgeWidth.toFixed(2)}`
+    );
+  }
   lastTile = { w: layout.tileW, h: layout.tileH };
   updateFilenameReadout();
   set("readout-modules", `${layout.count} × ${layout.count}`);

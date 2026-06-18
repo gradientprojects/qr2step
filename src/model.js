@@ -15,6 +15,7 @@ import {
   makeCompound,
   exportSTEP,
 } from "replicad";
+import polygonClipping from "polygon-clipping";
 import { buildMatrix, mergeRects } from "./qr.js";
 
 const FLOOR_MIN = 0.6; // min material left under a magnet pocket (mm)
@@ -84,34 +85,57 @@ function maskedRect(w, h, r, mask = ALL_CORNERS) {
 }
 
 /**
- * Fuse a list of {x,y,w,h} module rects (module units) into one 2D drawing.
- * Uses a balanced pairwise (divide-and-conquer) fuse instead of accumulating
- * into one growing shape: that keeps each boolean operating on small shapes,
- * turning the dominant build cost from ~O(n²) into ~O(n log n). Calls
- * onRect(done, total) so the UI can show real progress.
+ * Merge a list of {x,y,w,h} module rects (module units) into one 2D drawing.
+ *
+ * The rects from greedy-meshing TILE the dark region — they share exactly
+ * coincident edges. replicad's 2D blueprint boolean is fragile on coincident
+ * collinear edges and would intermittently abort (a bare kernel "24") partway
+ * through a long pairwise fuse on dense codes. So we instead union the
+ * rectangles with polygon-clipping (martinez), which is robust to coincident
+ * edges, then build replicad geometry from the few resulting polygons. Edge-
+ * sharing rects merge into one clean ring; corner-only touches stay separate
+ * (the diagonal bridges handle those); enclosed light cells become holes.
+ *
+ * Geometrically identical to the old path (modules are sharp, radius-0 rects).
+ * Calls onRect(done, total) so the UI can show real progress.
  */
 function modulesDrawing(rects, m, qrLeft, qrTop, onRect) {
   if (!rects.length) return null;
-  let level = rects.map(({ x, y, w, h }) => {
-    const cx = qrLeft + (x + w / 2) * m;
-    const cy = qrTop - (y + h / 2) * m;
-    return drawRoundedRectangle(w * m, h * m, 0).translate([cx, cy]);
+  // Each rect → a closed polygon ring in mm. Row 0 is the TOP, so y grows down.
+  const polys = rects.map(({ x, y, w, h }) => {
+    const x0 = qrLeft + x * m;
+    const x1 = qrLeft + (x + w) * m;
+    const yTop = qrTop - y * m;
+    const yBot = qrTop - (y + h) * m;
+    return [[[x0, yBot], [x1, yBot], [x1, yTop], [x0, yTop], [x0, yBot]]];
   });
-  const total = level.length;
+  const merged = polygonClipping.union(polys[0], ...polys.slice(1));
+  const total = merged.length || 1;
   let done = 0;
-  while (level.length > 1) {
-    const next = [];
-    for (let i = 0; i < level.length; i += 2) {
-      if (i + 1 < level.length) {
-        next.push(level[i].fuse(level[i + 1]));
-        onRect?.(++done, total);
-      } else {
-        next.push(level[i]);
-      }
+  let result = null;
+  for (const poly of merged) {
+    const outer = poly[0];
+    if (!outer || outer.length < 4) {
+      onRect?.(++done, total);
+      continue;
     }
-    level = next;
+    try {
+      let d = polygonDrawing(outer);
+      for (let i = 1; i < poly.length; i++) {
+        if (poly[i].length < 4) continue;
+        try {
+          d = d.cut(polygonDrawing(poly[i]));
+        } catch {
+          /* skip an unbuildable hole rather than dropping the whole region */
+        }
+      }
+      result = result ? result.fuse(d) : d; // disjoint regions: a safe fuse
+    } catch {
+      /* skip a region the kernel can't build rather than aborting the model */
+    }
+    onRect?.(++done, total);
   }
-  return level[0];
+  return result;
 }
 
 /**
@@ -231,6 +255,9 @@ export function computeLayout(p) {
   // enough on light cells to hurt scanning, even on dense codes.
   const bridgeEff = Math.min(params.bridgeWidth, m / 3);
   const bridgeCapped = bridgeEff < params.bridgeWidth - 1e-9;
+  // Smallest QR-area size that would lift the cap for the requested bridge width
+  // (the cap is module/3, and module = qrSize/count, so qrSize ≥ 3·width·count).
+  const bridgeFull = params.bridgeWidth * 3 * count;
   const qz = params.quietModules * m;
   const innerSide = params.qrSize + 2 * qz; // light field around the QR (square)
 
@@ -307,6 +334,9 @@ export function computeLayout(p) {
     m,
     bridgeEff,
     bridgeCapped,
+    bridgeFull,
+    bridgeWidth: params.bridgeWidth, // surfaced for the readout (params is stripped)
+    connectDiagonals: params.connectDiagonals,
     qz,
     fw,
     tileW,
