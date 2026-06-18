@@ -32,5 +32,6 @@ Bundled label fonts under the SIL Open Font License (see `src/fonts/*-OFL.txt`):
 ### Fixes
 
 - Fixed intermittent build failures on dense codes (notably higher EC levels): the QR modules **and** their diagonal connectors are now merged with a single robust polygon union instead of a chain of CAD booleans. This fixes both the boolean abort and the follow-on meshing crash on the QR body, and speeds up the build.
+- Fixed a related build failure in **Flat** mode (frame + text label on dense codes): the colored parts are now cut into the plate as separate solids rather than merged into one 2D tool first, avoiding the same fragile boolean.
 - Clicking into the 3D preview now moves keyboard focus there, so the **N** (normal view) shortcut works immediately without first clicking out of a field.
 - The diagonal-bridge readout is clearer: it only shows when the connector width was actually capped, and tells you the QR-area size needed to reach your requested width.

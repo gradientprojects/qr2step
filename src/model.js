@@ -502,15 +502,15 @@ export function buildModel(p, report = () => {}) {
     let plate = plate2d.sketchOnPlane().extrude(baseThickness);
     report(0.7, "shape");
     const z = baseThickness - inlayDepth;
-    if (darkDefs.length) {
-      // Cut the pockets with one combined tool that OVERSHOOTS the top face — a
-      // coplanar tool/plate top face produces zero-area faces that pass the
-      // boolean but crash meshing (the flat-mode "mesh" failures).
-      let tool2d = darkDefs[0][0].clone();
-      for (let i = 1; i < darkDefs.length; i++)
-        tool2d = tool2d.fuse(darkDefs[i][0].clone());
-      plate = plate.cut(extrudeAt(tool2d, inlayDepth + 0.02, z));
-    }
+    // Cut each dark footprint from the plate top. The dark drawings are disjoint
+    // (modules inside the quiet zone, frame outside, label on the panel), so we
+    // cut them one at a time as 3D solids — a robust OCCT boolean — instead of
+    // fusing the 2D drawings into a single tool first: replicad's 2D blueprint
+    // fuse is fragile on the complex module/label/frame outlines and would abort
+    // ("24"). Each tool OVERSHOOTS the top face by 0.02 mm so a coplanar
+    // tool/plate top doesn't leave zero-area faces that crash meshing.
+    for (const [d] of darkDefs)
+      plate = plate.cut(extrudeAt(d.clone(), inlayDepth + 0.02, z));
     plate = cutMagnets(plate);
     bodies.push({ shape: plate, name: "Tile", colorKey: "light" });
     for (const [d, name] of darkDefs)
