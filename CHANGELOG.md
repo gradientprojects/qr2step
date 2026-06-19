@@ -3,6 +3,12 @@
 All notable changes to qr2step are documented here. This project follows
 [Keep a Changelog](https://keepachangelog.com) and [Semantic Versioning](https://semver.org).
 
+## [Unreleased]
+
+### Added
+
+- **Anonymous usage analytics** via [GoatCounter](https://www.goatcounter.com/) — a single cookieless page-view ping so we can tell whether the tool is being used. No cookies, no localStorage, no cross-site tracking, no personal data stored, and your IP is never retained (used transiently for a country lookup and an 8-hour-rotating session hash, then discarded). Nothing you type, render, or export is ever sent. A new **Privacy & analytics** section in the README documents exactly what is and isn't collected, and any tracker blocker drops the request with no effect on the tool.
+
 ## [0.1.1] — 2026-06-18
 
 ### Fixed

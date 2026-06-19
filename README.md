@@ -6,6 +6,19 @@ Turn a URL (or any text) into a **two-color, 3D-printable QR code** and download
 
 Most QR-to-3D tools output STL (a triangle mesh). qr2step builds true B-rep solids with [replicad](https://replicad.xyz) (OpenCASCADE compiled to WebAssembly), so the STEP file imports cleanly and stays editable in mechanical CAD.
 
+## Privacy & analytics
+
+Your QR content never leaves your browser — see above. The only thing this site sends anywhere is a single anonymous page-view ping, via [GoatCounter](https://www.goatcounter.com/), so we can tell whether the tool is being used at all.
+
+What that means for you:
+
+- **No cookies, no localStorage, no tracking** — nothing is stored on your device, and nothing follows you across visits or other sites. No consent banner because there's nothing to consent to.
+- **No personal data is stored.** GoatCounter records only aggregate, anonymized page views: the path visited, referrer, browser, screen size, a coarse country, and a timestamp.
+- **Your IP address is never stored.** It's used transiently to derive the country and a session hash that rotates every few hours, then discarded — it can't be tied back to you.
+- **Nothing you type, render, or export is ever sent** — not the URL/text, not your font or SVG, not the QR itself.
+
+If you'd rather send nothing at all, any content/tracker blocker will drop the GoatCounter request with zero effect on the tool.
+
 ## Features
 
 - **STEP output** with two separate solid bodies — one per color — plus an STL export.
